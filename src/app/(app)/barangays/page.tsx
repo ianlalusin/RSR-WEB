@@ -25,6 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import BrgyFormDialog from './_components/brgy-form-dialog';
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
+import UploadBrgyDialog from './_components/upload-brgy-dialog';
 
 export default function BarangaysPage() {
   const { userProfile } = useAuth();
@@ -57,6 +58,10 @@ export default function BarangaysPage() {
 
     return () => unsub();
   }, [canReadBarangays]);
+
+  const handleUploadSuccess = () => {
+    // onSnapshot will handle the update automatically
+  };
 
   if (loading) {
     return (
@@ -108,12 +113,15 @@ export default function BarangaysPage() {
             </CardDescription>
           </div>
           {canWriteBarangays && (
-            <BrgyFormDialog>
-                <Button>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Add Barangay
-                </Button>
-            </BrgyFormDialog>
+            <div className="flex items-center gap-2">
+              <UploadBrgyDialog onSuccess={handleUploadSuccess} />
+              <BrgyFormDialog>
+                  <Button>
+                      <PlusCircle className="mr-2 h-4 w-4" />
+                      Add Barangay
+                  </Button>
+              </BrgyFormDialog>
+            </div>
           )}
         </div>
       </CardHeader>

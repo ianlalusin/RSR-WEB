@@ -6,7 +6,7 @@ import {
 } from '@/ai/flows/generate-barangay-profiles';
 import { db } from '@/lib/firebase';
 import { Barangay } from '@/lib/types';
-import { addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 export async function generateBarangayProfiles(input: GenerateBarangayProfilesInput) {
   try {
@@ -55,6 +55,27 @@ export async function deleteBarangay(id: string) {
     try {
         const brgyDoc = doc(db, 'barangays', id);
         await deleteDoc(brgyDoc);
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function bulkAddBarangays(data: Omit<Barangay, 'id' | 'createdAt' | 'updatedAt'>[]) {
+    try {
+        const brgyCollection = collection(db, 'barangays');
+        const batch = writeBatch(db);
+
+        data.forEach(brgyData => {
+            const docRef = doc(brgyCollection); // Firestore will generate the ID
+            batch.set(docRef, {
+                ...brgyData,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+            });
+        });
+
+        await batch.commit();
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
