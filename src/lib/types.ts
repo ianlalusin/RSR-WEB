@@ -40,6 +40,7 @@ export interface Barangay {
   districtName: string;
   population: number;
   votingPopulation: number;
+  rsrVotes: number;
   favoredVotePct: number;
   isWin: boolean;
   congVisitCount: number;

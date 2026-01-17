@@ -55,6 +55,14 @@ export const columns: ColumnDef<Barangay>[] = [
       },
   },
   {
+    accessorKey: 'rsrVotes',
+    header: 'RSR Votes',
+    cell: ({ row }) => {
+        const amount = parseFloat(row.getValue('rsrVotes'))
+        return <div className="text-right font-medium">{amount.toLocaleString()}</div>
+    }
+  },
+  {
     accessorKey: 'favoredVotePct',
     header: 'Favored Vote %',
     cell: ({ row }) => {

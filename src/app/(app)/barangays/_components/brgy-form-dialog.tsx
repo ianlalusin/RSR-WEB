@@ -30,7 +30,7 @@ const formSchema = z.object({
   districtName: z.string().min(1, 'District is required.'),
   population: z.coerce.number().int().positive('Must be a positive number.'),
   votingPopulation: z.coerce.number().int().positive('Must be a positive number.'),
-  favoredVotePct: z.coerce.number().min(0).max(100, 'Must be between 0 and 100.'),
+  rsrVotes: z.coerce.number().int().nonnegative('Must be a non-negative number.'),
   isWin: z.boolean().default(false),
 });
 
@@ -62,19 +62,21 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
       districtName: barangay?.districtName || '',
       population: barangay?.population || 0,
       votingPopulation: barangay?.votingPopulation || 0,
-      favoredVotePct: barangay?.favoredVotePct || 0,
+      rsrVotes: barangay?.rsrVotes || 0,
       isWin: barangay?.isWin || false,
     },
   });
 
   const onSubmit = async (values: FormValues) => {
     try {
+      const favoredVotePct = values.votingPopulation > 0 ? (values.rsrVotes / values.votingPopulation) * 100 : 0;
       let result;
       if (isEditMode) {
-        result = await updateBarangay(barangay.id, values);
+        result = await updateBarangay(barangay.id, { ...values, favoredVotePct });
       } else {
         const newBrgyData = {
           ...values,
+          favoredVotePct,
           districtId: values.districtName.toLowerCase().replace(/\s/g, '-'),
           congVisitCount: 0,
           coordinatorUids: [],
@@ -181,17 +183,17 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
             </div>
              <div className="grid grid-cols-2 gap-4">
                 <FormField
-                control={form.control}
-                name="favoredVotePct"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Favored Vote %</FormLabel>
-                    <FormControl>
-                        <Input type="number" step="0.1" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
+                  control={form.control}
+                  name="rsrVotes"
+                  render={({ field }) => (
+                      <FormItem>
+                      <FormLabel>RSR Votes</FormLabel>
+                      <FormControl>
+                          <Input type="number" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                      </FormItem>
+                  )}
                 />
                 <FormField
                 control={form.control}

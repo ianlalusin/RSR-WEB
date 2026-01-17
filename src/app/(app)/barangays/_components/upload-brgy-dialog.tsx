@@ -54,6 +54,7 @@ const mapRowToBarangay = (row: any): UploadedBrgy | null => {
         districtId: String(district).toLowerCase().replace(/\s/g, '-'),
         population: population,
         votingPopulation: votingPopulation,
+        rsrVotes: rsrVotes,
         favoredVotePct: favoredVotePct,
         isWin: result ? String(result).toLowerCase() === 'win' : false,
         congVisitCount: 0,
