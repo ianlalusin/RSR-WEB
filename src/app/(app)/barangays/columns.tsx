@@ -3,7 +3,7 @@
 import { ColumnDef } from '@tanstack/react-table';
 import { Barangay } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
-import { ArrowUpDown, MoreHorizontal, Trash2 } from 'lucide-react';
+import { ArrowUpDown, MoreHorizontal, Trash2, Edit } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,8 +15,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import Link from 'next/link';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canDelete } from '@/lib/permissions';
+import { canDelete, canWriteBarangay } from '@/lib/permissions';
 import DeleteBrgyAlert from './_components/delete-brgy-alert';
+import BrgyFormDialog from './_components/brgy-form-dialog';
 
 export const columns: ColumnDef<Barangay>[] = [
   {
@@ -95,6 +96,7 @@ export const columns: ColumnDef<Barangay>[] = [
       const barangay = row.original;
       const { userProfile } = useAuth();
       const canDel = canDelete(userProfile);
+      const canEdit = canWriteBarangay(userProfile);
 
       return (
         <DropdownMenu>
@@ -109,6 +111,14 @@ export const columns: ColumnDef<Barangay>[] = [
             <Link href={`/barangays/${barangay.id}`} passHref>
                 <DropdownMenuItem>View Details</DropdownMenuItem>
             </Link>
+            {canEdit && (
+                <BrgyFormDialog barangay={barangay}>
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <Edit className="mr-2 h-4 w-4" />
+                        Edit
+                    </DropdownMenuItem>
+                </BrgyFormDialog>
+            )}
             {canDel && (
                 <>
                     <DropdownMenuSeparator />
