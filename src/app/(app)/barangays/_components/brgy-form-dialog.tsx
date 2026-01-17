@@ -23,10 +23,11 @@ import { addBarangay, updateBarangay } from '@/app/actions';
 import type { Barangay } from '@/lib/types';
 import { Loader2 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const formSchema = z.object({
   name: z.string().min(2, 'Name is required.'),
-  districtName: z.string().min(2, 'District name is required.'),
+  districtName: z.string().min(1, 'District is required.'),
   population: z.coerce.number().int().positive('Must be a positive number.'),
   votingPopulation: z.coerce.number().int().positive('Must be a positive number.'),
   favoredVotePct: z.coerce.number().min(0).max(100, 'Must be between 0 and 100.'),
@@ -40,6 +41,14 @@ interface Props {
   children: React.ReactNode;
   onSuccess?: () => void;
 }
+
+const districts = [
+    "North District",
+    "South District",
+    "East District",
+    "West District",
+    "Urban District",
+];
 
 export default function BrgyFormDialog({ barangay, children, onSuccess }: Props) {
   const [isOpen, setIsOpen] = useState(false);
@@ -124,9 +133,20 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>District</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g., North District" {...field} />
-                  </FormControl>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select a district" />
+                            </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                            {districts.map((district) => (
+                                <SelectItem key={district} value={district}>
+                                    {district}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                   <FormMessage />
                 </FormItem>
               )}
