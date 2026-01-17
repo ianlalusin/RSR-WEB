@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/card';
 import { Barangay } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
-import { can } from '@/lib/permissions';
+import { can, canDelete } from '@/lib/permissions';
 import { DataTable } from './data-table';
 import { columns } from './columns';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,6 +26,7 @@ import BrgyFormDialog from './_components/brgy-form-dialog';
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import UploadBrgyDialog from './_components/upload-brgy-dialog';
+import DeleteAllBrgysAlert from './_components/delete-all-brgys-alert';
 
 export default function BarangaysPage() {
   const { userProfile } = useAuth();
@@ -34,6 +35,7 @@ export default function BarangaysPage() {
 
   const canReadBarangays = can(userProfile, 'brgy.read');
   const canWriteBarangays = can(userProfile, 'brgy.write');
+  const canDel = canDelete(userProfile);
 
   useEffect(() => {
     if (!canReadBarangays) {
@@ -121,6 +123,7 @@ export default function BarangaysPage() {
                       Add Barangay
                   </Button>
               </BrgyFormDialog>
+              {canDel && <DeleteAllBrgysAlert onSuccess={handleUploadSuccess} />}
             </div>
           )}
         </div>

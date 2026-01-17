@@ -25,21 +25,22 @@ type UploadedBrgy = Omit<Barangay, 'id' | 'createdAt' | 'updatedAt'>;
 
 const mapRowToBarangay = (row: any): UploadedBrgy | null => {
     // Check for required fields
-    if (!row['Brgy Name'] || !row['District'] || !row['Population'] || !row['Voting Population']) {
+    if (!row['Brgy Name'] || !row['District'] || !row['Population'] || !row['Voting Population'] || row['RSR Vote'] === undefined) {
         return null;
     }
     
-    const percentageString = String(row['Percentage'] || '0');
-    // Remove '%' and convert to number
-    const percentage = parseFloat(percentageString.replace('%', ''));
+    const votingPopulation = Number(row['Voting Population']);
+    const rsrVote = Number(row['RSR Vote']);
+
+    const favoredVotePct = votingPopulation > 0 ? (rsrVote / votingPopulation) * 100 : 0;
 
     return {
         name: String(row['Brgy Name']),
         districtName: String(row['District']),
         districtId: String(row['District']).toLowerCase().replace(/\s/g, '-'),
         population: Number(row['Population']),
-        votingPopulation: Number(row['Voting Population']),
-        favoredVotePct: !isNaN(percentage) ? percentage : 0,
+        votingPopulation: votingPopulation,
+        favoredVotePct: favoredVotePct,
         isWin: String(row['Result']).toLowerCase() === 'win',
         congVisitCount: 0,
         coordinatorUids: [],
@@ -158,7 +159,7 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
           <DialogTitle>Upload Barangay Data</DialogTitle>
           <DialogDescription>
             Select an Excel file (.xlsx, .xls, .csv) with barangay data to bulk upload.
-            Ensure columns match: Brgy Name, District, Population, Voting Population, Result, Percentage.
+            Ensure columns match: Brgy Name, District, Population, Voting Population, RSR Vote, and Result.
           </DialogDescription>
         </DialogHeader>
 

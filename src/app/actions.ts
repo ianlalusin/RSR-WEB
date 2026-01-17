@@ -6,7 +6,7 @@ import {
 } from '@/ai/flows/generate-barangay-profiles';
 import { db } from '@/lib/firebase';
 import { Barangay } from '@/lib/types';
-import { addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 export async function generateBarangayProfiles(input: GenerateBarangayProfilesInput) {
   try {
@@ -76,6 +76,31 @@ export async function bulkAddBarangays(data: Omit<Barangay, 'id' | 'createdAt' |
         });
 
         await batch.commit();
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteAllBarangays() {
+    try {
+        const brgyCollection = collection(db, 'barangays');
+        const snapshot = await getDocs(brgyCollection);
+        
+        if (snapshot.empty) {
+            return { success: true };
+        }
+
+        const batchSize = 500;
+        for (let i = 0; i < snapshot.docs.length; i += batchSize) {
+            const batch = writeBatch(db);
+            const chunk = snapshot.docs.slice(i, i + batchSize);
+            chunk.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+        }
+
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
