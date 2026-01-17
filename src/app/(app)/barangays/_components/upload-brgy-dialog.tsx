@@ -24,24 +24,37 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 type UploadedBrgy = Omit<Barangay, 'id' | 'createdAt' | 'updatedAt'>;
 
 const mapRowToBarangay = (row: any): UploadedBrgy | null => {
+    // Helper to get value regardless of key casing
+    const getValue = (key: string) => {
+        const foundKey = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase());
+        return foundKey ? row[foundKey] : undefined;
+    };
+
+    const brgyName = getValue('Brgy Name');
+    const district = getValue('District');
+    const population = getValue('Population');
+    const votingPopulation = getValue('Voting Population');
+    const rsrVote = getValue('RSR Vote');
+    const result = getValue('Result');
+
     // Check for required fields
-    if (!row['Brgy Name'] || !row['District'] || !row['Population'] || !row['Voting Population'] || row['RSR Vote'] === undefined) {
+    if (brgyName === undefined || district === undefined || population === undefined || votingPopulation === undefined || rsrVote === undefined) {
         return null;
     }
     
-    const votingPopulation = Number(row['Voting Population']);
-    const rsrVote = Number(row['RSR Vote']);
+    const numVotingPopulation = Number(votingPopulation);
+    const numRsrVote = Number(rsrVote);
 
-    const favoredVotePct = votingPopulation > 0 ? (rsrVote / votingPopulation) * 100 : 0;
+    const favoredVotePct = numVotingPopulation > 0 ? (numRsrVote / numVotingPopulation) * 100 : 0;
 
     return {
-        name: String(row['Brgy Name']),
-        districtName: String(row['District']),
-        districtId: String(row['District']).toLowerCase().replace(/\s/g, '-'),
-        population: Number(row['Population']),
-        votingPopulation: votingPopulation,
+        name: String(brgyName),
+        districtName: String(district),
+        districtId: String(district).toLowerCase().replace(/\s/g, '-'),
+        population: Number(population),
+        votingPopulation: numVotingPopulation,
         favoredVotePct: favoredVotePct,
-        isWin: String(row['Result']).toLowerCase() === 'win',
+        isWin: result ? String(result).toLowerCase() === 'win' : false,
         congVisitCount: 0,
         coordinatorUids: [],
     };
