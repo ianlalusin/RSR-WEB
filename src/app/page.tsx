@@ -2,8 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { useAuthUser } from '@/hooks/useAuthUser';
-import { useUserProfile } from '@/hooks/useUserProfile';
+import { useAuth } from '@/components/providers/auth-provider';
 import AppLayout from '@/components/layout/app-layout';
 import {
   Card,
@@ -150,27 +149,26 @@ export default function Home() {
   const router = useRouter();
   const pathname = usePathname();
 
-  const { user, loading: authLoading } = useAuthUser();
-  const { profile, loading: profileLoading } = useUserProfile(user?.uid);
+  const { user, userProfile, loading } = useAuth();
 
   useEffect(() => {
-    if (authLoading || profileLoading) return;
+    if (loading) return;
 
     if (!user) {
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
       return;
     }
-    if (!profile?.isActive) {
+    if (!userProfile?.isActive) {
       router.replace('/login?reason=inactive');
       return;
     }
-  }, [authLoading, profileLoading, user, profile, router, pathname]);
+  }, [loading, user, userProfile, router, pathname]);
 
-  if (authLoading || profileLoading || !user || !profile) {
+  if (loading || !user || !userProfile) {
     return <FullScreenLoader />;
   }
 
-  if (!profile.isActive) {
+  if (!userProfile.isActive) {
       return <FullScreenLoader />;
   }
   

@@ -17,20 +17,18 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Barangay } from '@/lib/types';
-import { useAuthUser } from '@/hooks/useAuthUser';
-import { useUserProfile } from '@/hooks/useUserProfile';
+import { useAuth } from '@/components/providers/auth-provider';
 import { can } from '@/lib/permissions';
 import { DataTable } from './data-table';
 import { columns } from './columns';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function BarangaysPage() {
-  const { user } = useAuthUser();
-  const { profile } = useUserProfile(user?.uid);
+  const { userProfile } = useAuth();
   const [barangays, setBarangays] = useState<Barangay[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canReadBarangays = can(profile, 'brgy.read');
+  const canReadBarangays = can(userProfile, 'brgy.read');
 
   useEffect(() => {
     if (!canReadBarangays) {
