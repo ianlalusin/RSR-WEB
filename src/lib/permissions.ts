@@ -1,34 +1,61 @@
+import type { UserProfile } from "./types";
 
-export type UserProfile = {
-  isActive?: boolean;
-  roles?: string[];
-  permissions?: Record<string, boolean>;
-  departments?: string[];
-  districtIds?: string[];
-  coordinatorBrgyIds?: string[];
-};
-
-export function isAdmin(u?: UserProfile | null) {
+// This is the base check for admin role.
+export function isAdmin(u?: UserProfile | null): boolean {
   return !!u?.roles?.includes("admin");
 }
 
-export function can(u: UserProfile | null | undefined, key: string) {
+// Core permission checker.
+export function hasPerm(u: UserProfile | null | undefined, key: string): boolean {
+  if (!u?.isActive) return false;
+  // Admin has all permissions.
+  if (isAdmin(u)) return true;
+  // Check for explicit permission.
+  return !!u.permissions?.[key];
+}
+
+// Specific check for reading barangays.
+export function canReadBarangays(u: UserProfile | null | undefined): boolean {
+    if (!u?.isActive) return false;
+    if (isAdmin(u)) return true; // Admin can always read.
+    return hasPerm(u, 'brgy.read');
+}
+
+
+// Specific check for writing/editing barangays.
+export function canWriteBarangay(u: UserProfile | null | undefined): boolean {
   if (!u?.isActive) return false;
   if (isAdmin(u)) return true;
 
-  // Rule for OIC role as requested
-  if (u.roles?.includes('oic')) {
-      if (key === 'brgy.write' || key === 'brgy.captain.write') {
-          // OIC role has these permissions unless explicitly denied
-          return u.permissions?.[key] !== false;
-      }
+  // Rule for 'office' role: has permission unless explicitly denied.
+  if (u.roles?.includes('office')) {
+    return u.permissions?.['brgy.write'] !== false;
   }
-
-  return !!u?.permissions?.[key];
+  
+  return hasPerm(u, 'brgy.write');
 }
 
-// Hard rule: delete is admin only
-export function canDelete(u: UserProfile | null | undefined) {
+// Specific check for editing the captain's profile.
+export function canWriteCaptain(u: UserProfile | null | undefined): boolean {
+  if (!u?.isActive) return false;
+  if (isAdmin(u)) return true;
+
+  // Rule for 'office' role: has permission unless explicitly denied.
+  if (u.roles?.includes('office')) {
+    return u.permissions?.['brgy.captain.write'] !== false;
+  }
+
+  return hasPerm(u, 'brgy.captain.write');
+}
+
+// Specific check for managing users.
+export function canManageUsers(u: UserProfile | null | undefined): boolean {
+  return hasPerm(u, 'admin.users.manage');
+}
+
+
+// Hard rule: delete operations are admin-only.
+export function canDelete(u: UserProfile | null | undefined): boolean {
   if (!u?.isActive) return false;
   return isAdmin(u);
 }

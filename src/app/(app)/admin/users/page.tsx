@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/card';
 import { UserProfile } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
-import { can } from '@/lib/permissions';
+import { canManageUsers } from '@/lib/permissions';
 import { DataTable } from './data-table';
 import { columns } from './columns';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,7 +29,7 @@ export default function UserManagementPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canManage = can(userProfile, 'admin.users.manage');
+  const canManage = canManageUsers(userProfile);
 
   useEffect(() => {
     if (!canManage) {

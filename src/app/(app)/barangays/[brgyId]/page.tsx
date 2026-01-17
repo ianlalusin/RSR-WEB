@@ -6,7 +6,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Barangay } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
-import { can } from '@/lib/permissions';
+import { canWriteBarangay, canWriteCaptain } from '@/lib/permissions';
 
 import {
     Card,
@@ -87,8 +87,8 @@ export default function BarangayDetailPage({ params }: { params: { brgyId: strin
     return null;
   }
   
-  const canEditBrgy = can(userProfile, 'brgy.write');
-  const canEditCaptain = can(userProfile, 'brgy.captain.write');
+  const canEditBrgy = canWriteBarangay(userProfile);
+  const canEditCaptain = canWriteCaptain(userProfile);
 
   return (
     <div className="grid gap-6">

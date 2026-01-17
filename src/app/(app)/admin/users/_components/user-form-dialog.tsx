@@ -24,7 +24,7 @@ import { useAuth } from '@/components/providers/auth-provider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 
-const ALL_ROLES: UserRole[] = ['admin', 'oic', 'coordinator', 'district_head', 'auditor'];
+const ALL_ROLES: UserRole[] = ['admin', 'office', 'coordinator', 'district_head', 'auditor'];
 const ALL_PERMISSIONS = ['brgy.read', 'brgy.write', 'brgy.captain.write', 'admin.users.manage'];
 
 

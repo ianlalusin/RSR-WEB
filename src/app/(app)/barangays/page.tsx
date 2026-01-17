@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/card';
 import { Barangay } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
-import { can, canDelete } from '@/lib/permissions';
+import { canReadBarangays, canWriteBarangay, canDelete } from '@/lib/permissions';
 import { DataTable } from './data-table';
 import { columns } from './columns';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,12 +33,12 @@ export default function BarangaysPage() {
   const [barangays, setBarangays] = useState<Barangay[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canReadBarangays = can(userProfile, 'brgy.read');
-  const canWriteBarangays = can(userProfile, 'brgy.write');
+  const canRead = canReadBarangays(userProfile);
+  const canWrite = canWriteBarangay(userProfile);
   const canDel = canDelete(userProfile);
 
   useEffect(() => {
-    if (!canReadBarangays) {
+    if (!canRead) {
       setLoading(false);
       return;
     }
@@ -59,7 +59,7 @@ export default function BarangaysPage() {
     });
 
     return () => unsub();
-  }, [canReadBarangays]);
+  }, [canRead]);
 
   const handleUploadSuccess = () => {
     // onSnapshot will handle the update automatically
@@ -76,7 +76,7 @@ export default function BarangaysPage() {
                 A list of all barangays in the system.
               </CardDescription>
             </div>
-            {can(userProfile, 'brgy.write') && <Skeleton className="h-10 w-36" />}
+            {canWrite && <Skeleton className="h-10 w-36" />}
           </div>
         </CardHeader>
         <CardContent>
@@ -89,7 +89,7 @@ export default function BarangaysPage() {
     );
   }
 
-  if (!canReadBarangays) {
+  if (!canRead) {
     return (
       <Card>
         <CardHeader>
@@ -114,7 +114,7 @@ export default function BarangaysPage() {
               A list of all barangays in the system, updated in real-time.
             </CardDescription>
           </div>
-          {canWriteBarangays && (
+          {canWrite && (
             <div className="flex items-center gap-2">
               {canDel && <SyncDistrictsButton />}
               <UploadBrgyDialog onSuccess={handleUploadSuccess} />

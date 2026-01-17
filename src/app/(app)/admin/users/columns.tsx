@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/components/providers/auth-provider';
-import { can } from '@/lib/permissions';
+import { canManageUsers } from '@/lib/permissions';
 import { Switch } from '@/components/ui/switch';
 import { updateUser } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
@@ -60,7 +60,7 @@ export const columns: ColumnDef<UserProfile>[] = [
       const user = row.original;
       const { userProfile: actor } = useAuth();
       const { toast } = useToast();
-      const canManage = can(actor, 'admin.users.manage');
+      const canManage = canManageUsers(actor);
 
       const onToggle = async () => {
         if (!actor) return;
@@ -87,7 +87,7 @@ export const columns: ColumnDef<UserProfile>[] = [
     cell: ({ row }) => {
       const user = row.original;
       const { userProfile } = useAuth();
-      const canManage = can(userProfile, 'admin.users.manage');
+      const canManage = canManageUsers(userProfile);
 
       if (!canManage) return null;
 

@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Home, Landmark, Users, Shield, LogOut } from 'lucide-react';
 import { useAuth } from '../providers/auth-provider';
 import { cn } from '@/lib/utils';
-import { can } from '@/lib/permissions';
+import { hasPerm } from '@/lib/permissions';
 
 const navItems = [
   { href: '/', icon: Home, label: 'Dashboard' },
@@ -51,7 +51,7 @@ export function Sidebar() {
             </Tooltip>
           ))}
           {adminNavItems.map((item) => (
-            can(userProfile, item.permission) && (
+            hasPerm(userProfile, item.permission) && (
              <Tooltip key={item.href}>
              <TooltipTrigger asChild>
                <Link
