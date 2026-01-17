@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { AuthProvider } from '@/components/providers/auth-provider';
-import { Toaster } from '@/components/ui/toaster';
+import { RootProviders } from '@/components/providers/root-providers';
 
 export const metadata: Metadata = {
   title: 'RSR Web',
@@ -25,10 +24,9 @@ export default function RootLayout({
         />
       </head>
       <body className="font-body antialiased">
-        <AuthProvider>
+        <RootProviders>
           {children}
-        </AuthProvider>
-        <Toaster />
+        </RootProviders>
       </body>
     </html>
   );
