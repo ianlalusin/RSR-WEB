@@ -24,9 +24,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 type UploadedBrgy = Omit<Barangay, 'id' | 'createdAt' | 'updatedAt'>;
 
 const mapRowToBarangay = (row: any): UploadedBrgy | null => {
-    // Helper to get value regardless of key casing
+    // Helper to get value regardless of key casing or extra whitespace
     const getValue = (key: string) => {
-        const foundKey = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase());
+        const foundKey = Object.keys(row).find(k => k.toLowerCase().trim() === key.toLowerCase().trim());
         return foundKey ? row[foundKey] : undefined;
     };
 
@@ -34,7 +34,7 @@ const mapRowToBarangay = (row: any): UploadedBrgy | null => {
     const district = getValue('District');
     const population = getValue('Population');
     const votingPopulation = getValue('Voting Population');
-    const rsrVote = getValue('RSR Vote');
+    const rsrVote = getValue('RSR Votes');
     const result = getValue('Result');
 
     // Check for required fields
@@ -172,7 +172,7 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
           <DialogTitle>Upload Barangay Data</DialogTitle>
           <DialogDescription>
             Select an Excel file (.xlsx, .xls, .csv) with barangay data to bulk upload.
-            Ensure columns match: Brgy Name, District, Population, Voting Population, RSR Vote, and Result.
+            Ensure columns match: Brgy Name, District, Population, Voting Population, RSR Votes, and Result.
           </DialogDescription>
         </DialogHeader>
 
