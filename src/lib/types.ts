@@ -18,6 +18,7 @@ export interface UserProfile {
   displayName: string | null;
   roles: UserRole[];
   permissions: { [key: string]: boolean };
+  departments?: string[];
   districtIds?: string[];
   coordinatorBrgyIds?: string[];
   isActive: boolean;
