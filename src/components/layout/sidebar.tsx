@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Home, Landmark, Users, Cog, LogOut } from 'lucide-react';
+import { Home, Landmark, Users, Shield, LogOut } from 'lucide-react';
 import { useAuth } from '../providers/auth-provider';
 import { cn } from '@/lib/utils';
+import { can } from '@/lib/permissions';
 
 const navItems = [
   { href: '/', icon: Home, label: 'Dashboard' },
@@ -14,13 +15,12 @@ const navItems = [
 ];
 
 const adminNavItems = [
-  { href: '/admin/users', icon: Cog, label: 'Admin' },
+  { href: '/admin/users', icon: Shield, label: 'User Access', permission: 'admin.users.manage' },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const { logout, userProfile } = useAuth();
-  const isAdmin = userProfile?.roles.includes('admin');
 
   return (
     <aside className="fixed inset-y-0 left-0 z-10 hidden w-14 flex-col border-r bg-background sm:flex">
@@ -40,7 +40,7 @@ export function Sidebar() {
                   href={item.href}
                   className={cn(
                     'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground md:h-8 md:w-8',
-                    (pathname === item.href || (item.href === '/' && pathname.startsWith('/dashboard'))) && 'bg-accent text-accent-foreground'
+                    (pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/')) && 'bg-accent text-accent-foreground'
                   )}
                 >
                   <item.icon className="h-5 w-5" />
@@ -50,7 +50,8 @@ export function Sidebar() {
               <TooltipContent side="right">{item.label}</TooltipContent>
             </Tooltip>
           ))}
-          {isAdmin && adminNavItems.map((item) => (
+          {adminNavItems.map((item) => (
+            can(userProfile, item.permission) && (
              <Tooltip key={item.href}>
              <TooltipTrigger asChild>
                <Link
@@ -66,7 +67,7 @@ export function Sidebar() {
              </TooltipTrigger>
              <TooltipContent side="right">{item.label}</TooltipContent>
            </Tooltip>
-          ))}
+          )))}
         </nav>
         <nav className="mt-auto flex flex-col items-center gap-4 px-2 py-4">
           <Tooltip>

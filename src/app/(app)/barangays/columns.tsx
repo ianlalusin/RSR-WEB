@@ -3,7 +3,7 @@
 import { ColumnDef } from '@tanstack/react-table';
 import { Barangay } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
-import { ArrowUpDown, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+import { ArrowUpDown, MoreHorizontal, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,8 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import Link from 'next/link';
 import { useAuth } from '@/components/providers/auth-provider';
-import { can, canDelete } from '@/lib/permissions';
-import BrgyFormDialog from './_components/brgy-form-dialog';
+import { canDelete } from '@/lib/permissions';
 import DeleteBrgyAlert from './_components/delete-brgy-alert';
 
 export const columns: ColumnDef<Barangay>[] = [
@@ -32,7 +31,15 @@ export const columns: ColumnDef<Barangay>[] = [
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
         )
-      },
+    },
+    cell: ({ row }) => {
+        const barangay = row.original;
+        return (
+            <Link href={`/barangays/${barangay.id}`} className="hover:underline">
+                {barangay.name}
+            </Link>
+        )
+    }
   },
   {
     accessorKey: 'districtName',
@@ -87,8 +94,6 @@ export const columns: ColumnDef<Barangay>[] = [
     cell: ({ row }) => {
       const barangay = row.original;
       const { userProfile } = useAuth();
-
-      const canWrite = can(userProfile, 'brgy.write');
       const canDel = canDelete(userProfile);
 
       return (
@@ -104,14 +109,6 @@ export const columns: ColumnDef<Barangay>[] = [
             <Link href={`/barangays/${barangay.id}`} passHref>
                 <DropdownMenuItem>View Details</DropdownMenuItem>
             </Link>
-             {canWrite && (
-                <BrgyFormDialog barangay={barangay}>
-                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                        <Edit className="mr-2 h-4 w-4" />
-                        Edit
-                    </DropdownMenuItem>
-                </BrgyFormDialog>
-            )}
             {canDel && (
                 <>
                     <DropdownMenuSeparator />

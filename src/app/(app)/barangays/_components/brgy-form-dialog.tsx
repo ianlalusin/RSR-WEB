@@ -24,6 +24,7 @@ import type { Barangay } from '@/lib/types';
 import { Loader2 } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useAuth } from '@/components/providers/auth-provider';
 
 const formSchema = z.object({
   name: z.string().min(2, 'Name is required.'),
@@ -53,6 +54,7 @@ const districts = [
 export default function BrgyFormDialog({ barangay, children, onSuccess }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
+  const { userProfile } = useAuth();
   const isEditMode = !!barangay;
 
   const form = useForm<FormValues>({
@@ -68,11 +70,17 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
   });
 
   const onSubmit = async (values: FormValues) => {
+    if (!userProfile) {
+        toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in.' });
+        return;
+    }
+    const actor = { uid: userProfile.uid, email: userProfile.email };
+
     try {
       const favoredVotePct = values.votingPopulation > 0 ? (values.rsrVotes / values.votingPopulation) * 100 : 0;
       let result;
       if (isEditMode) {
-        result = await updateBarangay(barangay.id, { ...values, favoredVotePct });
+        result = await updateBarangay(barangay.id, { ...values, favoredVotePct }, actor);
       } else {
         const newBrgyData = {
           ...values,
@@ -81,7 +89,7 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
           congVisitCount: 0,
           coordinatorUids: [],
         }
-        result = await addBarangay(newBrgyData);
+        result = await addBarangay(newBrgyData, actor);
       }
 
       if (result.success) {

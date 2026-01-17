@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { deleteBarangay } from '@/app/actions';
 import { Loader2 } from 'lucide-react';
+import { useAuth } from '@/components/providers/auth-provider';
 
 interface Props {
   barangayId: string;
@@ -28,11 +29,18 @@ export default function DeleteBrgyAlert({ barangayId, barangayName, children, on
   const [isOpen, setIsOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
+  const { userProfile } = useAuth();
 
   const handleDelete = async () => {
+    if (!userProfile) {
+      toast({ variant: 'destructive', title: 'Not authenticated' });
+      return;
+    }
+    const actor = { uid: userProfile.uid, email: userProfile.email };
+
     setIsDeleting(true);
     try {
-      const result = await deleteBarangay(barangayId);
+      const result = await deleteBarangay(barangayId, actor);
       if (result.success) {
         toast({
           title: 'Barangay Deleted',

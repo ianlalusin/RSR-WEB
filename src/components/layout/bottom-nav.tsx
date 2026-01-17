@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Landmark, Users, Menu, User } from 'lucide-react';
+import { Home, Landmark, Users, Menu, User, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Sheet,
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from '../ui/button';
 import { useAuth } from '../providers/auth-provider';
+import { can } from '@/lib/permissions';
 
 
 const navItems = [
@@ -22,7 +23,7 @@ const navItems = [
 export function BottomNav() {
   const pathname = usePathname();
   const { logout, userProfile } = useAuth();
-  const isAdmin = userProfile?.roles.includes('admin');
+  const canManageUsers = can(userProfile, 'admin.users.manage');
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 backdrop-blur-sm sm:hidden">
@@ -55,11 +56,11 @@ export function BottomNav() {
                       Profile
                     </Link>
                   </Button>
-                  {isAdmin && (
+                  {canManageUsers && (
                     <Button asChild variant="outline" className="flex-col h-20">
                       <Link href="/admin/users">
-                        <Users className="h-6 w-6 mb-1"/>
-                        Admin
+                        <Shield className="h-6 w-6 mb-1"/>
+                        User Access
                       </Link>
                     </Button>
                   )}

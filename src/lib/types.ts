@@ -24,7 +24,7 @@ export interface UserProfile {
   isActive: boolean;
   createdAt: Timestamp | Date;
   updatedAt: Timestamp | Date;
-  photoURL?: string;
+  photoURL?: string | null;
 }
 
 export interface District {
@@ -54,6 +54,11 @@ export interface CaptainProfile {
   secretary: { name: string; contact: string; };
   councilors: { name: string; contact: string; }[];
   updatedAt: Timestamp;
+  updatedByUid: string;
+  updatedByEmail: string | null;
+  createdAt?: Timestamp;
+  createdByUid?: string;
+  createdByEmail?: string | null;
 }
 
 export interface Coordinator {

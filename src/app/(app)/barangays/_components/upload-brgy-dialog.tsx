@@ -20,11 +20,11 @@ import { Loader2, UploadCloud } from 'lucide-react';
 import { bulkAddBarangays } from '@/app/actions';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useAuth } from '@/components/providers/auth-provider';
 
 type UploadedBrgy = Omit<Barangay, 'id' | 'createdAt' | 'updatedAt'>;
 
 const mapRowToBarangay = (row: any): UploadedBrgy | null => {
-    // Helper to get value regardless of key casing or extra whitespace
     const getValue = (key: string) => {
         const foundKey = Object.keys(row).find(k => k.toLowerCase().trim() === key.toLowerCase().trim());
         return foundKey ? row[foundKey] : undefined;
@@ -34,18 +34,14 @@ const mapRowToBarangay = (row: any): UploadedBrgy | null => {
     const district = getValue('District');
     const result = getValue('Result');
 
-    // Get numeric values, coercing them to numbers
     const population = Number(getValue('Population'));
     const votingPopulation = Number(getValue('Voting Population'));
     const rsrVotes = Number(getValue('RSR Votes'));
 
-    // Check for required fields and valid numbers
     if (!brgyName || !district || isNaN(population) || isNaN(votingPopulation) || isNaN(rsrVotes)) {
         return null;
     }
     
-    // Compute favored vote % from 'RSR Votes' and 'Voting Population'.
-    // The formula is (RSR Votes / Voting Population) * 100.
     const favoredVotePct = votingPopulation > 0 ? (rsrVotes / votingPopulation) * 100 : 0;
 
     return {
@@ -69,6 +65,7 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
   const [parsedData, setParsedData] = useState<UploadedBrgy[]>([]);
   const [fileName, setFileName] = useState('');
   const { toast } = useToast();
+  const { userProfile } = useAuth();
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -91,7 +88,7 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
                 toast({
                     variant: 'destructive',
                     title: 'Parsing Error',
-                    description: 'Could not parse any valid barangay data from the file. Please check column names.',
+                    description: 'Could not parse any valid barangay data. Check column names: Brgy Name, District, Population, Voting Population, RSR Votes, Result.',
                 });
                 return;
             }
@@ -119,21 +116,22 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
 
   const handleUpload = async () => {
     if (parsedData.length === 0) {
-      toast({
-        variant: 'destructive',
-        title: 'No Data',
-        description: 'No data to upload. Please select and parse a file first.',
-      });
+      toast({ variant: 'destructive', title: 'No Data', description: 'No data to upload.' });
       return;
     }
+    if (!userProfile) {
+        toast({ variant: 'destructive', title: 'Not authenticated' });
+        return;
+    }
+    const actor = { uid: userProfile.uid, email: userProfile.email };
 
     setIsUploading(true);
     try {
-      const result = await bulkAddBarangays(parsedData);
+      const result = await bulkAddBarangays(parsedData, actor);
       if (result.success) {
         toast({
           title: 'Upload Successful',
-          description: `${parsedData.length} barangays have been added to the database.`,
+          description: `${parsedData.length} barangays have been added.`,
         });
         setIsOpen(false);
         setParsedData([]);
@@ -146,7 +144,7 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
       toast({
         variant: 'destructive',
         title: 'Upload Failed',
-        description: error.message || 'An unknown error occurred during the upload.',
+        description: error.message || 'An unknown error occurred.',
       });
     } finally {
       setIsUploading(false);
@@ -173,8 +171,7 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
         <DialogHeader>
           <DialogTitle>Upload Barangay Data</DialogTitle>
           <DialogDescription>
-            Select an Excel file (.xlsx, .xls, .csv) with barangay data to bulk upload.
-            Ensure columns match: Brgy Name, District, Population, Voting Population, RSR Votes, and Result.
+            Select an Excel file (.xlsx, .xls, .csv). Ensure columns match: Brgy Name, District, Population, Voting Population, RSR Votes, and Result.
           </DialogDescription>
         </DialogHeader>
 
