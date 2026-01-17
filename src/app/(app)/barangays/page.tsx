@@ -26,7 +26,6 @@ import BrgyFormDialog from './_components/brgy-form-dialog';
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import UploadBrgyDialog from './_components/upload-brgy-dialog';
-import DeleteAllBrgysAlert from './_components/delete-all-brgys-alert';
 
 export default function BarangaysPage() {
   const { userProfile } = useAuth();
@@ -123,7 +122,6 @@ export default function BarangaysPage() {
                       Add Barangay
                   </Button>
               </BrgyFormDialog>
-              {canDel && <DeleteAllBrgysAlert onSuccess={handleUploadSuccess} />}
             </div>
           )}
         </div>
