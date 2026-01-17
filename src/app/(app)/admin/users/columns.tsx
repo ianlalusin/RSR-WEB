@@ -3,7 +3,7 @@
 import { ColumnDef } from '@tanstack/react-table';
 import { UserProfile, UserRole } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
-import { ArrowUpDown, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+import { ArrowUpDown, MoreHorizontal, Edit } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canManageUsers } from '@/lib/permissions';
+import { canManageUsers, isAdmin } from '@/lib/permissions';
 import { Switch } from '@/components/ui/switch';
 import { updateUser } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
@@ -49,7 +49,7 @@ export const columns: ColumnDef<UserProfile>[] = [
     cell: ({ row }) => {
         const roles: UserRole[] = row.getValue('roles') || [];
         return <div className='flex flex-wrap gap-1'>
-            {roles.map(role => <Badge key={role} variant="secondary" className="capitalize">{role}</Badge>)}
+            {roles.map(role => <Badge key={role} variant="secondary" className="capitalize">{role.replace(/_/g, ' ')}</Badge>)}
         </div>
     }
   },
@@ -72,11 +72,13 @@ export const columns: ColumnDef<UserProfile>[] = [
         }
       }
 
+      const selfEditDisabled = user.uid === actor?.uid && !isAdmin(actor);
+
       return (
         <Switch
           checked={user.isActive}
           onCheckedChange={onToggle}
-          disabled={!canManage || user.uid === actor?.uid}
+          disabled={!canManage || selfEditDisabled}
           aria-label="Toggle user active status"
         />
       );
@@ -86,10 +88,12 @@ export const columns: ColumnDef<UserProfile>[] = [
     id: 'actions',
     cell: ({ row }) => {
       const user = row.original;
-      const { userProfile } = useAuth();
-      const canManage = canManageUsers(userProfile);
+      const { userProfile: actor } = useAuth();
+      const canManage = canManageUsers(actor);
 
       if (!canManage) return null;
+
+      const selfEditDisabled = user.uid === actor?.uid && !isAdmin(actor);
 
       return (
         <DropdownMenu>
@@ -102,7 +106,7 @@ export const columns: ColumnDef<UserProfile>[] = [
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
             <UserFormDialog user={user}>
-                 <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                 <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={selfEditDisabled}>
                     <Edit className="mr-2 h-4 w-4" />
                     Edit Roles & Permissions
                 </DropdownMenuItem>
