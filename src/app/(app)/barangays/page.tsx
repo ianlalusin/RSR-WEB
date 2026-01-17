@@ -26,6 +26,7 @@ import BrgyFormDialog from './_components/brgy-form-dialog';
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import UploadBrgyDialog from './_components/upload-brgy-dialog';
+import SyncDistrictsButton from './_components/sync-districts-button';
 
 export default function BarangaysPage() {
   const { userProfile } = useAuth();
@@ -115,6 +116,7 @@ export default function BarangaysPage() {
           </div>
           {canWriteBarangays && (
             <div className="flex items-center gap-2">
+              {canDel && <SyncDistrictsButton />}
               <UploadBrgyDialog onSuccess={handleUploadSuccess} />
               <BrgyFormDialog>
                   <Button>

@@ -6,7 +6,7 @@ import {
 } from '@/ai/flows/generate-barangay-profiles';
 import { db } from '@/lib/firebase';
 import { Barangay, CaptainProfile, UserProfile } from '@/lib/types';
-import { addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 export async function generateBarangayProfiles(input: GenerateBarangayProfilesInput) {
   try {
@@ -206,6 +206,59 @@ export async function updateCaptainProfile(brgyId: string, isCreating: boolean, 
 
         await batch.commit();
         return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function syncDistricts(actor: Actor) {
+    try {
+        const batch = writeBatch(db);
+        const brgyCollectionRef = collection(db, 'barangays');
+        const brgySnapshot = await getDocs(brgyCollectionRef);
+
+        const districtMap: { [key: string]: string } = {
+            "North": "North District",
+            "South": "South District",
+            "East": "East District",
+            "West": "West District",
+            "Urban": "Urban District",
+        };
+        const districtKeys = Object.keys(districtMap);
+        let updatedCount = 0;
+
+        brgySnapshot.forEach(docSnap => {
+            const brgy = docSnap.data() as Omit<Barangay, 'id'>;
+            const currentDistrictName = brgy.districtName;
+            
+            const matchingKey = districtKeys.find(key => key.toLowerCase() === currentDistrictName.toLowerCase().trim());
+
+            if (matchingKey) {
+                const newDistrictName = districtMap[matchingKey];
+                const newDistrictId = newDistrictName.toLowerCase().replace(/\s/g, '-');
+                
+                if(brgy.districtName !== newDistrictName || brgy.districtId !== newDistrictId) {
+                    batch.update(docSnap.ref, { districtName: newDistrictName, districtId: newDistrictId });
+                    updatedCount++;
+                }
+            }
+        });
+
+        if (updatedCount > 0) {
+            const auditLogRef = doc(collection(db, 'auditLogs'));
+            batch.set(auditLogRef, {
+                entityType: 'system',
+                entityId: 'barangays_collection',
+                action: 'bulk_update',
+                changes: { operation: 'syncDistricts', updatedCount },
+                actorUid: actor.uid,
+                actorEmail: actor.email,
+                createdAt: serverTimestamp(),
+            });
+            await batch.commit();
+        }
+
+        return { success: true, updatedCount };
     } catch (error: any) {
         return { success: false, error: error.message };
     }
