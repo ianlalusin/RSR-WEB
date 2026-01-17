@@ -5,8 +5,6 @@ import { onAuthStateChanged, User, signInWithEmailAndPassword, signInWithPopup, 
 import { auth, db, googleProvider } from '@/lib/firebase';
 import type { UserProfile } from '@/lib/types';
 import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
-import { usePathname, useRouter } from 'next/navigation';
-import AppLayout from '../layout/app-layout';
 import { Landmark } from 'lucide-react';
 
 interface AuthContextType {
@@ -40,16 +38,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const pathname = usePathname();
-  const router = useRouter();
 
   useEffect(() => {
+    let unsubProfile: () => void = () => {};
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      unsubProfile();
       if (firebaseUser) {
         setUser(firebaseUser);
         
         const userRef = doc(db, 'users', firebaseUser.uid);
-        onSnapshot(userRef, (snapshot) => {
+        unsubProfile = onSnapshot(userRef, (snapshot) => {
           if (snapshot.exists()) {
             setUserProfile(snapshot.data() as UserProfile);
           } else {
@@ -61,7 +59,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               displayName: firebaseUser.displayName,
               photoURL: firebaseUser.photoURL || null,
               roles: isSeedAdmin ? ['admin'] : [],
-              permissions: {},
+              permissions: isSeedAdmin ? { "admin.all": true } : {},
               isActive: isSeedAdmin,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -69,30 +67,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setDoc(userRef, newUserProfile);
             setUserProfile(newUserProfile);
           }
+          setLoading(false);
         });
 
       } else {
         setUser(null);
         setUserProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    const publicPaths = ['/login'];
-    const isPublicPath = publicPaths.includes(pathname);
-
-    if (!loading) {
-      if (!user && !isPublicPath) {
-        router.push('/login');
-      } else if (user && isPublicPath) {
-        router.push('/');
-      }
+    return () => {
+      unsubscribe();
+      unsubProfile();
     }
-  }, [user, loading, pathname, router]);
+  }, []);
 
   const login = (email: string, pass: string) => {
     return signInWithEmailAndPassword(auth, email, pass);
@@ -108,15 +97,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const value = { user, userProfile, loading, login, loginWithGoogle, logout };
   
-  const isAppRoute = !['/login', '/'].includes(pathname) && !pathname.startsWith('/_next');
-
   if (loading) {
     return <FullScreenLoader />;
-  }
-  
-  if (isAppRoute) {
-     if (!user) return <FullScreenLoader />;
-     return <AuthContext.Provider value={value}><AppLayout>{children}</AppLayout></AuthContext.Provider>;
   }
 
   return (
