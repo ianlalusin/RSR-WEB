@@ -1,7 +1,15 @@
-import type { UserProfile } from './types';
+
+export type UserProfile = {
+  isActive?: boolean;
+  roles?: string[];
+  permissions?: Record<string, boolean>;
+  departments?: string[];
+  districtIds?: string[];
+  coordinatorBrgyIds?: string[];
+};
 
 export function isAdmin(u?: UserProfile | null) {
-  return !!u?.roles?.includes('admin') || !!u?.permissions?.['admin.all'];
+  return !!u?.roles?.includes("admin") || !!u?.permissions?.["admin.all"];
 }
 
 export function can(u: UserProfile | null | undefined, key: string) {
