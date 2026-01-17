@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Landmark } from 'lucide-react';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -46,6 +48,43 @@ export default function LoginPage() {
         title: 'Google Login Failed',
         description: error.message || 'Could not sign in with Google.',
       });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSeedAdmin = async () => {
+    setIsLoading(true);
+    try {
+      await createUserWithEmailAndPassword(auth, 'ianlalusin@gmail.com', '123456');
+      router.push('/');
+      toast({
+        title: 'Admin User Seeded',
+        description: 'Logged in as admin.',
+      });
+    } catch (error: any) {
+      if (error.code === 'auth/email-already-in-use') {
+        try {
+          await login('ianlalusin@gmail.com', '123456');
+          router.push('/');
+          toast({
+            title: 'Admin Login',
+            description: 'Logged in as existing admin.',
+          });
+        } catch (loginError: any) {
+          toast({
+            variant: 'destructive',
+            title: 'Admin Login Failed',
+            description: loginError.message,
+          });
+        }
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Admin Seed Failed',
+          description: error.message,
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -98,12 +137,17 @@ export default function LoginPage() {
               <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
             </div>
           </div>
-          <Button variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={isLoading}>
-            <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512">
-              <path fill="currentColor" d="M488 261.8C488 403.3 381.5 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 23.4 172.9 61.9l-76.3 64.5c-24.5-23.4-58.2-38.3-96.6-38.3-73.2 0-133.1 61.9-133.1 138s59.9 138 133.1 138c78.8 0 112.3-52.8 115.8-78.8h-116v-89.2h213.9c2.1 12.7 3.2 26.2 3.2 40.8z" />
-            </svg>
-            Google
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={isLoading}>
+              <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512">
+                <path fill="currentColor" d="M488 261.8C488 403.3 381.5 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 23.4 172.9 61.9l-76.3 64.5c-24.5-23.4-58.2-38.3-96.6-38.3-73.2 0-133.1 61.9-133.1 138s59.9 138 133.1 138c78.8 0 112.3-52.8 115.8-78.8h-116v-89.2h213.9c2.1 12.7 3.2 26.2 3.2 40.8z" />
+              </svg>
+              Google
+            </Button>
+            <Button variant="secondary" className="w-full" onClick={handleSeedAdmin} disabled={isLoading}>
+              Seed Admin
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

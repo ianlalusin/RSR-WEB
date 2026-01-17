@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Landmark, Users, Menu } from 'lucide-react';
+import { Home, Landmark, Users, Menu, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Sheet,
@@ -21,7 +21,8 @@ const navItems = [
 
 export function BottomNav() {
   const pathname = usePathname();
-  const { logout } = useAuth();
+  const { logout, userProfile } = useAuth();
+  const isAdmin = userProfile?.roles.includes('admin');
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 backdrop-blur-sm sm:hidden">
@@ -46,10 +47,25 @@ export function BottomNav() {
               <span className="text-xs">More</span>
             </button>
           </SheetTrigger>
-          <SheetContent side="bottom" className='h-auto'>
-              <div className="grid gap-4 py-4">
-                  <Button variant="ghost" className="justify-start">Admin</Button>
-                  <Button variant="ghost" className="justify-start" onClick={() => logout()}>Logout</Button>
+          <SheetContent side="bottom" className='h-auto rounded-t-lg'>
+              <div className="grid grid-cols-2 gap-2 p-4">
+                  <Button asChild variant="outline" className="flex-col h-20">
+                    <Link href="/profile">
+                      <User className="h-6 w-6 mb-1"/>
+                      Profile
+                    </Link>
+                  </Button>
+                  {isAdmin && (
+                    <Button asChild variant="outline" className="flex-col h-20">
+                      <Link href="/admin/users">
+                        <Users className="h-6 w-6 mb-1"/>
+                        Admin
+                      </Link>
+                    </Button>
+                  )}
+                  <Button variant="outline" className="flex-col h-20 col-span-2" onClick={() => logout()}>
+                    Logout
+                  </Button>
               </div>
           </SheetContent>
         </Sheet>

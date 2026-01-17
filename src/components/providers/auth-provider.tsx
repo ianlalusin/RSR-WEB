@@ -54,14 +54,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setUserProfile(snapshot.data() as UserProfile);
           } else {
             // Auto-provision user on first login
+            const isSeedAdmin = firebaseUser.email === 'ianlalusin@gmail.com';
             const newUserProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: firebaseUser.email,
               displayName: firebaseUser.displayName,
               photoURL: firebaseUser.photoURL || null,
-              roles: [],
+              roles: isSeedAdmin ? ['admin'] : [],
               permissions: {},
-              isActive: false,
+              isActive: isSeedAdmin,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             };
