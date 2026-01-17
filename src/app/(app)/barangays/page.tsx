@@ -22,6 +22,9 @@ import { can } from '@/lib/permissions';
 import { DataTable } from './data-table';
 import { columns } from './columns';
 import { Skeleton } from '@/components/ui/skeleton';
+import BrgyFormDialog from './_components/brgy-form-dialog';
+import { Button } from '@/components/ui/button';
+import { PlusCircle } from 'lucide-react';
 
 export default function BarangaysPage() {
   const { userProfile } = useAuth();
@@ -29,6 +32,7 @@ export default function BarangaysPage() {
   const [loading, setLoading] = useState(true);
 
   const canReadBarangays = can(userProfile, 'brgy.read');
+  const canWriteBarangays = can(userProfile, 'brgy.write');
 
   useEffect(() => {
     if (!canReadBarangays) {
@@ -58,10 +62,15 @@ export default function BarangaysPage() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Barangays</CardTitle>
-          <CardDescription>
-            A list of all barangays in the system.
-          </CardDescription>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle>Barangays</CardTitle>
+              <CardDescription>
+                A list of all barangays in the system.
+              </CardDescription>
+            </div>
+            {can(userProfile, 'brgy.write') && <Skeleton className="h-10 w-36" />}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -91,10 +100,22 @@ export default function BarangaysPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Barangays</CardTitle>
-        <CardDescription>
-          A list of all barangays in the system, updated in real-time.
-        </CardDescription>
+        <div className="flex justify-between items-center">
+          <div>
+            <CardTitle>Barangays</CardTitle>
+            <CardDescription>
+              A list of all barangays in the system, updated in real-time.
+            </CardDescription>
+          </div>
+          {canWriteBarangays && (
+            <BrgyFormDialog>
+                <Button>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Add Barangay
+                </Button>
+            </BrgyFormDialog>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <DataTable columns={columns} data={barangays} />

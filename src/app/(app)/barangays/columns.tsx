@@ -3,16 +3,21 @@
 import { ColumnDef } from '@tanstack/react-table';
 import { Barangay } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
-import { ArrowUpDown, MoreHorizontal } from 'lucide-react';
+import { ArrowUpDown, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import Link from 'next/link';
+import { useAuth } from '@/components/providers/auth-provider';
+import { can, canDelete } from '@/lib/permissions';
+import BrgyFormDialog from './_components/brgy-form-dialog';
+import DeleteBrgyAlert from './_components/delete-brgy-alert';
 
 export const columns: ColumnDef<Barangay>[] = [
   {
@@ -73,6 +78,10 @@ export const columns: ColumnDef<Barangay>[] = [
     id: 'actions',
     cell: ({ row }) => {
       const barangay = row.original;
+      const { userProfile } = useAuth();
+
+      const canWrite = can(userProfile, 'brgy.write');
+      const canDel = canDelete(userProfile);
 
       return (
         <DropdownMenu>
@@ -87,7 +96,25 @@ export const columns: ColumnDef<Barangay>[] = [
             <Link href={`/barangays/${barangay.id}`} passHref>
                 <DropdownMenuItem>View Details</DropdownMenuItem>
             </Link>
-            <DropdownMenuItem>Edit Barangay</DropdownMenuItem>
+             {canWrite && (
+                <BrgyFormDialog barangay={barangay}>
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <Edit className="mr-2 h-4 w-4" />
+                        Edit
+                    </DropdownMenuItem>
+                </BrgyFormDialog>
+            )}
+            {canDel && (
+                <>
+                    <DropdownMenuSeparator />
+                    <DeleteBrgyAlert barangayId={barangay.id} barangayName={barangay.name}>
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                        </DropdownMenuItem>
+                    </DeleteBrgyAlert>
+                </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       );

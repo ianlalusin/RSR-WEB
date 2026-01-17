@@ -1,0 +1,210 @@
+'use client';
+
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+  DialogClose
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { useToast } from '@/hooks/use-toast';
+import { addBarangay, updateBarangay } from '@/app/actions';
+import type { Barangay } from '@/lib/types';
+import { Loader2 } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+
+const formSchema = z.object({
+  name: z.string().min(2, 'Name is required.'),
+  districtName: z.string().min(2, 'District name is required.'),
+  population: z.coerce.number().int().positive('Must be a positive number.'),
+  votingPopulation: z.coerce.number().int().positive('Must be a positive number.'),
+  favoredVotePct: z.coerce.number().min(0).max(100, 'Must be between 0 and 100.'),
+  isWin: z.boolean().default(false),
+});
+
+type FormValues = z.infer<typeof formSchema>;
+
+interface Props {
+  barangay?: Barangay;
+  children: React.ReactNode;
+  onSuccess?: () => void;
+}
+
+export default function BrgyFormDialog({ barangay, children, onSuccess }: Props) {
+  const [isOpen, setIsOpen] = useState(false);
+  const { toast } = useToast();
+  const isEditMode = !!barangay;
+
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: barangay?.name || '',
+      districtName: barangay?.districtName || '',
+      population: barangay?.population || 0,
+      votingPopulation: barangay?.votingPopulation || 0,
+      favoredVotePct: barangay?.favoredVotePct || 0,
+      isWin: barangay?.isWin || false,
+    },
+  });
+
+  const onSubmit = async (values: FormValues) => {
+    try {
+      let result;
+      if (isEditMode) {
+        result = await updateBarangay(barangay.id, values);
+      } else {
+        const newBrgyData = {
+          ...values,
+          districtId: values.districtName.toLowerCase().replace(/\s/g, '-'),
+          congVisitCount: 0,
+          coordinatorUids: [],
+        }
+        result = await addBarangay(newBrgyData);
+      }
+
+      if (result.success) {
+        toast({
+          title: `Barangay ${isEditMode ? 'updated' : 'added'}`,
+          description: `${values.name} has been successfully ${isEditMode ? 'updated' : 'added'}.`,
+        });
+        form.reset();
+        setIsOpen(false);
+        onSuccess?.();
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Operation Failed',
+        description: error.message || 'An unknown error occurred.',
+      });
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>{isEditMode ? 'Edit Barangay' : 'Add New Barangay'}</DialogTitle>
+          <DialogDescription>
+            {isEditMode ? `Update the details for ${barangay.name}.` : 'Fill in the details for the new barangay.'}
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., San Antonio" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="districtName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>District</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., North District" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+             <div className="grid grid-cols-2 gap-4">
+                <FormField
+                control={form.control}
+                name="population"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>Population</FormLabel>
+                    <FormControl>
+                        <Input type="number" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+                <FormField
+                control={form.control}
+                name="votingPopulation"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>Voters</FormLabel>
+                    <FormControl>
+                        <Input type="number" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+            </div>
+             <div className="grid grid-cols-2 gap-4">
+                <FormField
+                control={form.control}
+                name="favoredVotePct"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>Favored Vote %</FormLabel>
+                    <FormControl>
+                        <Input type="number" step="0.1" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+                <FormField
+                control={form.control}
+                name="isWin"
+                render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                        <FormLabel>Win Status</FormLabel>
+                        <FormControl>
+                            <div className="flex items-center space-x-2 h-10">
+                                <Switch
+                                    id="isWin-switch"
+                                    checked={field.value}
+                                    onCheckedChange={field.onChange}
+                                />
+                                <Label htmlFor="isWin-switch">{field.value ? 'Win' : 'Lose'}</Label>
+                            </div>
+                        </FormControl>
+                    </FormItem>
+                )}
+                />
+            </div>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="secondary">Cancel</Button>
+              </DialogClose>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {isEditMode ? 'Save Changes' : 'Create Barangay'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
