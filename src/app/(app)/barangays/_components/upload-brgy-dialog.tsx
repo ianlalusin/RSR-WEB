@@ -32,27 +32,28 @@ const mapRowToBarangay = (row: any): UploadedBrgy | null => {
 
     const brgyName = getValue('Brgy Name');
     const district = getValue('District');
-    const population = getValue('Population');
-    const votingPopulation = getValue('Voting Population');
-    const rsrVote = getValue('RSR Votes');
     const result = getValue('Result');
 
-    // Check for required fields
-    if (brgyName === undefined || district === undefined || population === undefined || votingPopulation === undefined || rsrVote === undefined) {
+    // Get numeric values, coercing them to numbers
+    const population = Number(getValue('Population'));
+    const votingPopulation = Number(getValue('Voting Population'));
+    const rsrVotes = Number(getValue('RSR Votes'));
+
+    // Check for required fields and valid numbers
+    if (!brgyName || !district || isNaN(population) || isNaN(votingPopulation) || isNaN(rsrVotes)) {
         return null;
     }
     
-    const numVotingPopulation = Number(votingPopulation);
-    const numRsrVote = Number(rsrVote);
-
-    const favoredVotePct = numVotingPopulation > 0 ? (numRsrVote / numVotingPopulation) * 100 : 0;
+    // Compute favored vote % from 'RSR Votes' and 'Voting Population'.
+    // The formula is (RSR Votes / Voting Population) * 100.
+    const favoredVotePct = votingPopulation > 0 ? (rsrVotes / votingPopulation) * 100 : 0;
 
     return {
         name: String(brgyName),
         districtName: String(district),
         districtId: String(district).toLowerCase().replace(/\s/g, '-'),
-        population: Number(population),
-        votingPopulation: numVotingPopulation,
+        population: population,
+        votingPopulation: votingPopulation,
         favoredVotePct: favoredVotePct,
         isWin: result ? String(result).toLowerCase() === 'win' : false,
         congVisitCount: 0,
