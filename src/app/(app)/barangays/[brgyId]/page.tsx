@@ -156,11 +156,11 @@ export default function BarangayDetailPage() {
         {/* The assistance records will now be shown here, queried from the global assistance collections */}
         <Card>
             <CardHeader>
-                <CardTitle>Assistance Projects</CardTitle>
-                <CardDescription>Projects from Medical, Educational, and Infrastructure sectors tagged for this barangay.</CardDescription>
+                <CardTitle>RSR Projects & Initiatives</CardTitle>
+                <CardDescription>Projects and initiatives this barangay is a beneficiary of.</CardDescription>
             </CardHeader>
             <CardContent>
-                <p className="text-muted-foreground">Coming soon: A list of all assistance projects this barangay is a beneficiary of.</p>
+                <p className="text-muted-foreground">Coming soon: A list of all projects and initiatives this barangay is a beneficiary of.</p>
             </CardContent>
         </Card>
     </div>

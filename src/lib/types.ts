@@ -95,15 +95,15 @@ export interface CoordinatorReport {
   createdAt: Timestamp;
 }
 
-export type AssistanceSector = "medical" | "educational" | "infrastructure";
+export type ProjectSector = "medical" | "educational" | "infrastructure";
 export type ValueType = "cash" | "in-kind" | "service";
 export type RecordStatus = "draft" | "submitted" | "approved" | "released" | "archived";
 
-export interface AssistanceRecord {
+export interface ProjectRecord {
   id: string;
   brgyIds: string[];
   districtIds: string[];
-  sector: AssistanceSector;
+  sector: ProjectSector;
   departmentId?: string;
   title: string;
   description: string;
@@ -123,7 +123,7 @@ export interface GlobalAnalytics {
     totalRecords: number;
     budgetTotal: number;
     expensesTotal: number;
-    sectorBreakdown: Record<AssistanceSector, number>;
+    sectorBreakdown: Record<ProjectSector, number>;
     districtBreakdown: Record<string, { totalRecords: number; budget: number; expenses: number }>;
 }
 

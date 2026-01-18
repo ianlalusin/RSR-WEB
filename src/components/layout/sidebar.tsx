@@ -12,7 +12,7 @@ const navItems = [
   { href: '/', icon: Home, label: 'Dashboard' },
   { href: '/barangays', icon: Landmark, label: 'Barangays' },
   { href: '/coordinators', icon: Users, label: 'Coordinators' },
-  { href: '/assistance', icon: HeartHandshake, label: 'Assistance' },
+  { href: '/assistance', icon: HeartHandshake, label: 'Projects' },
 ];
 
 const adminNavItems = [

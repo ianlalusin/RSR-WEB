@@ -5,7 +5,7 @@ import {
   type GenerateBarangayProfilesInput,
 } from '@/ai/flows/generate-barangay-profiles';
 import { db } from '@/lib/firebase';
-import { AssistanceRecord, Barangay, CaptainProfile, UserProfile } from '@/lib/types';
+import { ProjectRecord, Barangay, CaptainProfile, UserProfile } from '@/lib/types';
 import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 export async function generateBarangayProfiles(input: GenerateBarangayProfilesInput) {
@@ -265,12 +265,12 @@ export async function syncDistricts(actor: Actor) {
 }
 
 
-type AddAssistanceData = Omit<AssistanceRecord, 'id' | 'createdAt' | 'updatedAt' | 'createdByUid'>;
+type AddProjectData = Omit<ProjectRecord, 'id' | 'createdAt' | 'updatedAt' | 'createdByUid'>;
 
-export async function addAssistanceRecord(data: AddAssistanceData, actor: Actor) {
+export async function addProjectRecord(data: AddProjectData, actor: Actor) {
     try {
         const batch = writeBatch(db);
-        const newRecordRef = doc(collection(db, 'assistanceRecords'));
+        const newRecordRef = doc(collection(db, 'projectRecords'));
         
         batch.set(newRecordRef, {
             ...data,
@@ -281,7 +281,7 @@ export async function addAssistanceRecord(data: AddAssistanceData, actor: Actor)
 
         const auditLogRef = doc(collection(db, 'auditLogs'));
         batch.set(auditLogRef, {
-            entityType: 'assistanceRecord',
+            entityType: 'projectRecord',
             entityId: newRecordRef.id,
             action: 'create',
             changes: data,
@@ -297,10 +297,10 @@ export async function addAssistanceRecord(data: AddAssistanceData, actor: Actor)
     }
 }
 
-export async function updateAssistanceRecord(id: string, data: Partial<Omit<AssistanceRecord, 'id'>>, actor: Actor) {
+export async function updateProjectRecord(id: string, data: Partial<Omit<ProjectRecord, 'id'>>, actor: Actor) {
     try {
         const batch = writeBatch(db);
-        const recordDoc = doc(db, 'assistanceRecords', id);
+        const recordDoc = doc(db, 'projectRecords', id);
         
         batch.update(recordDoc, {
             ...data,
@@ -309,7 +309,7 @@ export async function updateAssistanceRecord(id: string, data: Partial<Omit<Assi
 
         const auditLogRef = doc(collection(db, 'auditLogs'));
         batch.set(auditLogRef, {
-            entityType: 'assistanceRecord',
+            entityType: 'projectRecord',
             entityId: id,
             action: 'update',
             changes: data,
@@ -325,15 +325,15 @@ export async function updateAssistanceRecord(id: string, data: Partial<Omit<Assi
     }
 }
 
-export async function deleteAssistanceRecord(id: string, actor: Actor) {
+export async function deleteProjectRecord(id: string, actor: Actor) {
     try {
         const batch = writeBatch(db);
-        const recordDoc = doc(db, 'assistanceRecords', id);
+        const recordDoc = doc(db, 'projectRecords', id);
         batch.delete(recordDoc);
 
         const auditLogRef = doc(collection(db, 'auditLogs'));
         batch.set(auditLogRef, {
-            entityType: 'assistanceRecord',
+            entityType: 'projectRecord',
             entityId: id,
             action: 'delete',
             changes: {},
