@@ -117,11 +117,24 @@ export interface ProjectRecord {
   updatedAt: Timestamp;
 }
 
+export type PermissionKey = 'barangays' | 'barangayCaptain' | 'coordinators' | 'projects' | 'users';
+
+export type DepartmentPermissions = {
+  read?: boolean;
+  add?: boolean;
+  edit?: boolean;
+  delete?: boolean;
+};
+
+export type DepartmentScope = 'department' | 'district' | 'brgy';
+
 export interface Department {
   id: string;
   name: string;
   description?: string;
   headUid?: string;
+  scopes?: DepartmentScope[];
+  permissions?: Partial<Record<PermissionKey, DepartmentPermissions>>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

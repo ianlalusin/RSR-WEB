@@ -7,7 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Coordinator, Department, UserProfile } from '@/lib/types';
+import { Coordinator, Department, UserProfile, PermissionKey, DepartmentScope } from '@/lib/types';
 import { DataTable } from './data-table';
 import { columns as coordinatorsColumns } from './columns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -48,7 +48,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
@@ -58,13 +58,40 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { mockCoordinators } from '@/lib/data';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Separator } from '@/components/ui/separator';
+
+const ALL_SCOPES: { id: DepartmentScope, label: string }[] = [
+    { id: 'department', label: 'Department' },
+    { id: 'district', label: 'District' },
+    { id: 'brgy', label: 'Barangay' },
+];
+
+const PERMISSION_CONFIG: Record<PermissionKey, { label: string }> = {
+  barangays: { label: 'Barangays' },
+  barangayCaptain: { label: 'Barangay Captain Profile' },
+  coordinators: { label: 'Coordinators' },
+  projects: { label: 'RSR Projects' },
+  users: { label: 'User Management' },
+};
+const PERMISSION_KEYS = Object.keys(PERMISSION_CONFIG) as PermissionKey[];
 
 
 // --- Department Form ---
 const departmentFormSchema = z.object({
   name: z.string().min(2, 'Name is required.'),
   description: z.string().optional(),
+  scopes: z.array(z.string()).default([]),
+  permissions: z.record(z.string(), z.object({
+    read: z.boolean().default(false),
+    add: z.boolean().default(false),
+    edit: z.boolean().default(false),
+    delete: z.boolean().default(false),
+  })).default({}),
 });
+
 type DepartmentFormValues = z.infer<typeof departmentFormSchema>;
 
 function DepartmentFormDialog({
@@ -83,9 +110,16 @@ function DepartmentFormDialog({
 
   const form = useForm<DepartmentFormValues>({
     resolver: zodResolver(departmentFormSchema),
-    defaultValues: {
-      name: department?.name || '',
-      description: department?.description || '',
+    defaultValues: isEditMode ? {
+        name: department.name,
+        description: department.description || '',
+        scopes: department.scopes || [],
+        permissions: department.permissions || {},
+    } : {
+        name: '',
+        description: '',
+        scopes: [],
+        permissions: {},
     },
   });
   
@@ -94,9 +128,11 @@ function DepartmentFormDialog({
         form.reset({
             name: department.name,
             description: department.description || '',
+            scopes: department.scopes || [],
+            permissions: department.permissions || {},
         })
     }
-  }, [department, form]);
+  }, [department, form, isOpen]);
 
   const onSubmit = async (values: DepartmentFormValues) => {
     if (!userProfile) return;
@@ -125,37 +161,118 @@ function DepartmentFormDialog({
     }
   };
 
+  const handleAllPermissionChange = (key: PermissionKey, checked: boolean) => {
+    form.setValue(`permissions.${key}.read`, checked);
+    form.setValue(`permissions.${key}.add`, checked);
+    form.setValue(`permissions.${key}.edit`, checked);
+    form.setValue(`permissions.${key}.delete`, checked);
+  };
+
+  const watchedPermissions = form.watch('permissions');
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEditMode ? 'Edit Department' : 'Add New Department'}</DialogTitle>
+           <DialogDescription>
+            Configure department details, data access scope, and page permissions.
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl><Input placeholder="e.g., Finance" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl><Textarea placeholder="What does this department do?" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+             <div className="max-h-[60vh] overflow-y-auto space-y-6 p-1">
+                {/* Basic Details */}
+                <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel>Name</FormLabel> <FormControl><Input placeholder="e.g., Finance" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl><Textarea placeholder="What does this department do?" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                
+                <Separator />
+
+                {/* Data Access Scope */}
+                <FormField
+                    control={form.control}
+                    name="scopes"
+                    render={() => (
+                        <FormItem>
+                            <FormLabel className="text-base font-semibold">Data Access Scope</FormLabel>
+                            <FormMessage />
+                            <div className="flex flex-row items-center space-x-4 pt-2">
+                            {ALL_SCOPES.map((scope) => (
+                                <FormField
+                                key={scope.id}
+                                control={form.control}
+                                name="scopes"
+                                render={({ field }) => (
+                                    <FormItem key={scope.id} className="flex flex-row items-start space-x-3 space-y-0">
+                                        <FormControl>
+                                            <Checkbox
+                                                checked={field.value?.includes(scope.id)}
+                                                onCheckedChange={(checked) => {
+                                                return checked
+                                                    ? field.onChange([...field.value, scope.id])
+                                                    : field.onChange(field.value?.filter((value) => value !== scope.id))
+                                                }}
+                                            />
+                                        </FormControl>
+                                        <FormLabel className="font-normal">{scope.label}</FormLabel>
+                                    </FormItem>
+                                )}
+                                />
+                            ))}
+                            </div>
+                        </FormItem>
+                    )}
+                />
+
+                <Separator />
+                
+                {/* Permissions Matrix */}
+                <div className='space-y-2'>
+                    <FormLabel className="text-base font-semibold">Page & Data Permissions</FormLabel>
+                     <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Page / Data</TableHead>
+                                <TableHead className="text-center">Read</TableHead>
+                                <TableHead className="text-center">Add</TableHead>
+                                <TableHead className="text-center">Edit</TableHead>
+                                <TableHead className="text-center">Delete</TableHead>
+                                <TableHead className="text-center">All</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {PERMISSION_KEYS.map((key) => {
+                                const currentPerms = watchedPermissions?.[key] || {};
+                                const allChecked = currentPerms.read && currentPerms.add && currentPerms.edit && currentPerms.delete;
+                                return (
+                                    <TableRow key={key}>
+                                        <TableCell className="font-medium">{PERMISSION_CONFIG[key].label}</TableCell>
+                                        {(['read', 'add', 'edit', 'delete'] as const).map((action) => (
+                                            <TableCell key={action} className="text-center">
+                                                <Controller
+                                                    name={`permissions.${key}.${action}`}
+                                                    control={form.control}
+                                                    render={({ field }) => (
+                                                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                                                    )}
+                                                />
+                                            </TableCell>
+                                        ))}
+                                        <TableCell className="text-center">
+                                            <Checkbox
+                                                checked={allChecked}
+                                                onCheckedChange={(checked) => handleAllPermissionChange(key, !!checked)}
+                                            />
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </div>
+             </div>
+
             <DialogFooter>
               <DialogClose asChild><Button type="button" variant="secondary">Cancel</Button></DialogClose>
               <Button type="submit" disabled={form.formState.isSubmitting}>
@@ -244,7 +361,20 @@ function DepartmentsTab() {
 
   const departmentColumns: ColumnDef<Department>[] = [
     { accessorKey: 'name', header: 'Name' },
-    { accessorKey: 'description', header: 'Description', cell: ({row}) => <p className='line-clamp-2 text-muted-foreground'>{row.original.description}</p> },
+    { 
+        accessorKey: 'scopes', 
+        header: 'Scopes',
+        cell: ({ row }) => {
+            const scopes: DepartmentScope[] = row.getValue('scopes') || [];
+            if (scopes.length === 0) return <span className="text-muted-foreground text-xs">Not set</span>
+            return (
+                <div className='flex flex-wrap gap-1'>
+                    {scopes.map(scope => <Badge key={scope} variant="secondary" className="capitalize">{scope}</Badge>)}
+                </div>
+            )
+        }
+    },
+    { accessorKey: 'description', header: 'Description', cell: ({row}) => <p className='line-clamp-2 text-muted-foreground text-xs'>{row.original.description || 'N/A'}</p> },
     {
       id: 'actions',
       cell: ({ row }) => {
