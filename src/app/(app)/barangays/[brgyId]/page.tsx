@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { notFound, useRouter } from 'next/navigation';
+import { notFound, useRouter, useParams } from 'next/navigation';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Barangay } from '@/lib/types';
@@ -55,14 +55,17 @@ function DetailPageSkeleton() {
 }
 
 
-export default function BarangayDetailPage({ params }: { params: { brgyId: string } }) {
-  const { brgyId } = params;
+export default function BarangayDetailPage() {
+  const params = useParams();
+  const brgyId = params.brgyId as string;
   const [barangay, setBarangay] = useState<Barangay | null>(null);
   const [loading, setLoading] = useState(true);
   const { userProfile } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
+    if (!brgyId) return;
+    
     const unsub = onSnapshot(doc(db, 'barangays', brgyId), (doc) => {
       if (doc.exists()) {
         setBarangay({ id: doc.id, ...doc.data() } as Barangay);
