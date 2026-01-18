@@ -56,13 +56,14 @@ function DetailPageSkeleton() {
 
 
 export default function BarangayDetailPage({ params }: { params: { brgyId: string } }) {
+  const { brgyId } = params;
   const [barangay, setBarangay] = useState<Barangay | null>(null);
   const [loading, setLoading] = useState(true);
   const { userProfile } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'barangays', params.brgyId), (doc) => {
+    const unsub = onSnapshot(doc(db, 'barangays', brgyId), (doc) => {
       if (doc.exists()) {
         setBarangay({ id: doc.id, ...doc.data() } as Barangay);
       } else {
@@ -76,7 +77,7 @@ export default function BarangayDetailPage({ params }: { params: { brgyId: strin
     });
 
     return () => unsub();
-  }, [params.brgyId]);
+  }, [brgyId]);
 
   if (loading) {
     return <DetailPageSkeleton />;
