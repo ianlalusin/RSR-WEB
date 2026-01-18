@@ -117,6 +117,15 @@ export interface ProjectRecord {
   updatedAt: Timestamp;
 }
 
+export interface Department {
+  id: string;
+  name: string;
+  description?: string;
+  headUid?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 export interface GlobalAnalytics {
     totalBarangays: number;
     totalCoordinators: number;

@@ -53,6 +53,12 @@ export function canManageUsers(u: UserProfile | null | undefined): boolean {
   return hasPerm(u, 'admin.users.manage');
 }
 
+// Specific check for managing departments. Admin-only for now.
+export function canManageDepartments(u: UserProfile | null | undefined): boolean {
+  if (!u?.isActive) return false;
+  return isAdmin(u);
+}
+
 
 // Hard rule: delete operations are admin-only.
 export function canDelete(u: UserProfile | null | undefined): boolean {

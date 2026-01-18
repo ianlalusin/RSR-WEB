@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Landmark, Users, Menu, User, Shield, HeartHandshake } from 'lucide-react';
+import { Home, Landmark, Users, Menu, User, Shield, HeartHandshake, Briefcase } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Sheet,
@@ -17,7 +17,7 @@ import { canManageUsers } from '@/lib/permissions';
 const navItems = [
   { href: '/', icon: Home, label: 'Dashboard' },
   { href: '/barangays', icon: Landmark, label: 'Barangays' },
-  { href: '/coordinators', icon: Users, label: 'Coordinators' },
+  { href: '/coordinators', icon: Briefcase, label: 'Organization' },
   { href: '/assistance', icon: HeartHandshake, label: 'Projects' },
 ];
 
