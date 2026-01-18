@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Landmark, Users, Menu, User, Shield } from 'lucide-react';
+import { Home, Landmark, Users, Menu, User, Shield, HeartHandshake } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Sheet,
@@ -18,6 +18,7 @@ const navItems = [
   { href: '/', icon: Home, label: 'Dashboard' },
   { href: '/barangays', icon: Landmark, label: 'Barangays' },
   { href: '/coordinators', icon: Users, label: 'Coordinators' },
+  { href: '/assistance', icon: HeartHandshake, label: 'Assistance' },
 ];
 
 export function BottomNav() {
@@ -34,7 +35,7 @@ export function BottomNav() {
             href={item.href}
             className={cn(
               'flex flex-col items-center gap-1 p-2 rounded-md text-muted-foreground transition-colors hover:text-foreground',
-              (pathname === item.href || (item.href === '/' && pathname.startsWith('/dashboard'))) ? 'text-primary font-semibold' : ''
+              (pathname.startsWith(item.href) && item.href !== '/') || pathname === item.href ? 'text-primary font-semibold' : ''
             )}
           >
             <item.icon className="h-6 w-6" />

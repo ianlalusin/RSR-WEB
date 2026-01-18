@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Home, Landmark, Users, Shield, LogOut } from 'lucide-react';
+import { Home, Landmark, Users, Shield, LogOut, HeartHandshake } from 'lucide-react';
 import { useAuth } from '../providers/auth-provider';
 import { cn } from '@/lib/utils';
 import { hasPerm } from '@/lib/permissions';
@@ -12,6 +12,7 @@ const navItems = [
   { href: '/', icon: Home, label: 'Dashboard' },
   { href: '/barangays', icon: Landmark, label: 'Barangays' },
   { href: '/coordinators', icon: Users, label: 'Coordinators' },
+  { href: '/assistance', icon: HeartHandshake, label: 'Assistance' },
 ];
 
 const adminNavItems = [
@@ -40,7 +41,7 @@ export function Sidebar() {
                   href={item.href}
                   className={cn(
                     'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground md:h-8 md:w-8',
-                    (pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/')) && 'bg-accent text-accent-foreground'
+                    (pathname.startsWith(item.href) && item.href !== '/') || pathname === item.href ? 'bg-accent text-accent-foreground' : ''
                   )}
                 >
                   <item.icon className="h-5 w-5" />

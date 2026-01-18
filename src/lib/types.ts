@@ -101,8 +101,8 @@ export type RecordStatus = "draft" | "submitted" | "approved" | "released" | "ar
 
 export interface AssistanceRecord {
   id: string;
-  brgyId: string;
-  districtId: string;
+  brgyIds: string[];
+  districtIds: string[];
   sector: AssistanceSector;
   departmentId?: string;
   title: string;

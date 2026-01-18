@@ -16,14 +16,12 @@ import {
     CardTitle,
   } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Users, Vote, HandCoins, Building, GraduationCap, HeartPulse, Edit, User } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Users, Vote, HandCoins, Edit, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import BrgyFormDialog from '../_components/brgy-form-dialog';
 import CaptainProfileDialog from './_components/captain-profile-dialog';
 import GenerateProfilesDialog from './_components/generate-profiles-dialog';
-import AssistanceTabContent from './_components/assistance-tab-content';
 
 function DetailPageSkeleton() {
     return (
@@ -155,22 +153,16 @@ export default function BarangayDetailPage() {
             </CardContent>
         </Card>
 
-        <Tabs defaultValue="medical">
-            <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="medical"><HeartPulse className="w-4 h-4 mr-2"/>Medical</TabsTrigger>
-                <TabsTrigger value="educational"><GraduationCap className="w-4 h-4 mr-2"/>Educational</TabsTrigger>
-                <TabsTrigger value="infrastructure"><Building className="w-4 h-4 mr-2"/>Infrastructure</TabsTrigger>
-            </TabsList>
-            <TabsContent value="medical">
-                <AssistanceTabContent barangay={barangay} sector="medical" />
-            </TabsContent>
-            <TabsContent value="educational">
-                <AssistanceTabContent barangay={barangay} sector="educational" />
-            </TabsContent>
-            <TabsContent value="infrastructure">
-                 <AssistanceTabContent barangay={barangay} sector="infrastructure" />
-            </TabsContent>
-        </Tabs>
+        {/* The assistance records will now be shown here, queried from the global assistance collections */}
+        <Card>
+            <CardHeader>
+                <CardTitle>Assistance Projects</CardTitle>
+                <CardDescription>Projects from Medical, Educational, and Infrastructure sectors tagged for this barangay.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <p className="text-muted-foreground">Coming soon: A list of all assistance projects this barangay is a beneficiary of.</p>
+            </CardContent>
+        </Card>
     </div>
   );
 }
