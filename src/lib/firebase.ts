@@ -1,4 +1,3 @@
-'use server';
 
 import { initializeApp, getApps, getApp, FirebaseOptions } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
