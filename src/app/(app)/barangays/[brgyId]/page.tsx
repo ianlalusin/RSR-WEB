@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { notFound, useRouter, useParams } from 'next/navigation';
+import { notFound, useParams } from 'next/navigation';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Barangay } from '@/lib/types';
@@ -16,13 +16,14 @@ import {
     CardTitle,
   } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Users, Vote, HandCoins, Building, GraduationCap, HeartPulse, Edit, User, Sparkles } from 'lucide-react';
+import { Users, Vote, HandCoins, Building, GraduationCap, HeartPulse, Edit, User } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import BrgyFormDialog from '../_components/brgy-form-dialog';
 import CaptainProfileDialog from './_components/captain-profile-dialog';
 import GenerateProfilesDialog from './_components/generate-profiles-dialog';
+import AssistanceTabContent from './_components/assistance-tab-content';
 
 function DetailPageSkeleton() {
     return (
@@ -61,8 +62,7 @@ export default function BarangayDetailPage() {
   const [barangay, setBarangay] = useState<Barangay | null>(null);
   const [loading, setLoading] = useState(true);
   const { userProfile } = useAuth();
-  const router = useRouter();
-
+  
   useEffect(() => {
     if (!brgyId) return;
     
@@ -162,37 +162,13 @@ export default function BarangayDetailPage() {
                 <TabsTrigger value="infrastructure"><Building className="w-4 h-4 mr-2"/>Infrastructure</TabsTrigger>
             </TabsList>
             <TabsContent value="medical">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Medical Assistance</CardTitle>
-                        <CardDescription>Records of medical assistance provided to this barangay.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                       <p>Medical assistance records will be displayed here.</p>
-                    </CardContent>
-                </Card>
+                <AssistanceTabContent barangay={barangay} sector="medical" />
             </TabsContent>
             <TabsContent value="educational">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Educational Assistance</CardTitle>
-                        <CardDescription>Records of educational assistance provided to this barangay.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                       <p>Educational assistance records will be displayed here.</p>
-                    </CardContent>
-                </Card>
+                <AssistanceTabContent barangay={barangay} sector="educational" />
             </TabsContent>
             <TabsContent value="infrastructure">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Infrastructure Projects</CardTitle>
-                        <CardDescription>Records of infrastructure projects in this barangay.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                       <p>Infrastructure project records will be displayed here.</p>
-                    </CardContent>
-                </Card>
+                 <AssistanceTabContent barangay={barangay} sector="infrastructure" />
             </TabsContent>
         </Tabs>
     </div>

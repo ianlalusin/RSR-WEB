@@ -5,7 +5,7 @@ import {
   type GenerateBarangayProfilesInput,
 } from '@/ai/flows/generate-barangay-profiles';
 import { db } from '@/lib/firebase';
-import { Barangay, CaptainProfile, UserProfile } from '@/lib/types';
+import { AssistanceRecord, Barangay, CaptainProfile, UserProfile } from '@/lib/types';
 import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 export async function generateBarangayProfiles(input: GenerateBarangayProfilesInput) {
@@ -259,6 +259,91 @@ export async function syncDistricts(actor: Actor) {
         }
 
         return { success: true, updatedCount };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+
+type AddAssistanceData = Omit<AssistanceRecord, 'id' | 'createdAt' | 'updatedAt' | 'createdByUid'>;
+
+export async function addAssistanceRecord(data: AddAssistanceData, actor: Actor) {
+    try {
+        const batch = writeBatch(db);
+        const newRecordRef = doc(collection(db, 'assistanceRecords'));
+        
+        batch.set(newRecordRef, {
+            ...data,
+            createdByUid: actor.uid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        });
+
+        const auditLogRef = doc(collection(db, 'auditLogs'));
+        batch.set(auditLogRef, {
+            entityType: 'assistanceRecord',
+            entityId: newRecordRef.id,
+            action: 'create',
+            changes: data,
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            createdAt: serverTimestamp(),
+        });
+        
+        await batch.commit();
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateAssistanceRecord(id: string, data: Partial<Omit<AssistanceRecord, 'id'>>, actor: Actor) {
+    try {
+        const batch = writeBatch(db);
+        const recordDoc = doc(db, 'assistanceRecords', id);
+        
+        batch.update(recordDoc, {
+            ...data,
+            updatedAt: serverTimestamp(),
+        });
+
+        const auditLogRef = doc(collection(db, 'auditLogs'));
+        batch.set(auditLogRef, {
+            entityType: 'assistanceRecord',
+            entityId: id,
+            action: 'update',
+            changes: data,
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            createdAt: serverTimestamp(),
+        });
+
+        await batch.commit();
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteAssistanceRecord(id: string, actor: Actor) {
+    try {
+        const batch = writeBatch(db);
+        const recordDoc = doc(db, 'assistanceRecords', id);
+        batch.delete(recordDoc);
+
+        const auditLogRef = doc(collection(db, 'auditLogs'));
+        batch.set(auditLogRef, {
+            entityType: 'assistanceRecord',
+            entityId: id,
+            action: 'delete',
+            changes: {},
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            createdAt: serverTimestamp(),
+        });
+
+        await batch.commit();
+        return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
     }

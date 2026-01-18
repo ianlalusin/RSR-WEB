@@ -1,3 +1,5 @@
+'use server';
+
 import type { Timestamp } from "firebase/firestore";
 
 export type UserRole =
@@ -16,6 +18,7 @@ export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
+  photoURL?: string | null;
   roles: UserRole[];
   permissions: { [key: string]: boolean };
   departments?: string[];
@@ -24,7 +27,6 @@ export interface UserProfile {
   isActive: boolean;
   createdAt: Timestamp | Date;
   updatedAt: Timestamp | Date;
-  photoURL?: string | null;
 }
 
 export interface District {
@@ -50,14 +52,14 @@ export interface Barangay {
 }
 
 export interface CaptainProfile {
-  captain: { 
-    name: string; 
+  captain: {
+    name: string;
     photoURL?: string | null;
-    address: string; 
-    contact: string; 
-    birthday: string; 
-    age: number; 
-    email: string; 
+    address: string;
+    contact: string;
+    birthday: string;
+    age: number;
+    email: string;
   };
   secretary: { name: string; contact: string; };
   councilors: { name: string; contact: string; }[];
