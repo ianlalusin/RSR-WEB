@@ -50,7 +50,15 @@ export interface Barangay {
 }
 
 export interface CaptainProfile {
-  captain: { name: string; address: string; contact: string; birthday: string; age: number; email: string; };
+  captain: { 
+    name: string; 
+    photoURL?: string | null;
+    address: string; 
+    contact: string; 
+    birthday: string; 
+    age: number; 
+    email: string; 
+  };
   secretary: { name: string; contact: string; };
   councilors: { name: string; contact: string; }[];
   updatedAt: Timestamp;

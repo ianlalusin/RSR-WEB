@@ -25,6 +25,7 @@ import { useAuth } from '@/components/providers/auth-provider';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const councilorSchema = z.object({
     name: z.string().min(1, 'Name is required'),
@@ -34,6 +35,7 @@ const councilorSchema = z.object({
 const formSchema = z.object({
   captain: z.object({
     name: z.string().min(1, 'Name is required'),
+    photoURL: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
     address: z.string().optional(),
     contact: z.string().optional(),
     birthday: z.string().optional(),
@@ -75,7 +77,7 @@ export default function CaptainProfileDialog({ brgyId, canEdit, children }: Prop
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      captain: { name: '', address: '', contact: '', birthday: '', age: 0, email: '' },
+      captain: { name: '', photoURL: '', address: '', contact: '', birthday: '', age: 0, email: '' },
       secretary: { name: '', contact: '' },
       councilors: [],
     },
@@ -100,7 +102,7 @@ export default function CaptainProfileDialog({ brgyId, canEdit, children }: Prop
         } else {
           setProfileData(null);
           form.reset({
-            captain: { name: '', address: '', contact: '', birthday: '', age: 0, email: '' },
+            captain: { name: '', photoURL: '', address: '', contact: '', birthday: '', age: 0, email: '' },
             secretary: { name: '', contact: '' },
             councilors: [],
           });
@@ -171,21 +173,25 @@ export default function CaptainProfileDialog({ brgyId, canEdit, children }: Prop
                 <div className="space-y-4 p-4 border rounded-lg">
                     <h3 className="font-semibold text-lg">Captain</h3>
                     <FormField control={form.control} name="captain.name" render={({ field }) => ( <FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+                    <FormField control={form.control} name="captain.photoURL" render={({ field }) => ( <FormItem><FormLabel>Photo URL</FormLabel><FormControl><Input placeholder="https://example.com/image.png" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                     <div className="grid grid-cols-2 gap-4">
-                        <FormField control={form.control} name="captain.contact" render={({ field }) => ( <FormItem><FormLabel>Contact</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                        <FormField control={form.control} name="captain.email" render={({ field }) => ( <FormItem><FormLabel>Email</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="captain.contact" render={({ field }) => ( <FormItem><FormLabel>Contact</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="captain.email" render={({ field }) => ( <FormItem><FormLabel>Email</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                     </div>
-                     <div className="grid grid-cols-3 gap-4">
-                        <FormField control={form.control} name="captain.address" render={({ field }) => ( <FormItem className="col-span-2"><FormLabel>Address</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                         <FormField control={form.control} name="captain.birthday" render={({ field }) => ( <FormItem><FormLabel>Birthday</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                     <div className="grid grid-cols-2 gap-4">
+                        <FormField control={form.control} name="captain.address" render={({ field }) => ( <FormItem className="col-span-2"><FormLabel>Address</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <FormField control={form.control} name="captain.birthday" render={({ field }) => ( <FormItem><FormLabel>Birthday</FormLabel><FormControl><Input type="date" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="captain.age" render={({ field }) => ( <FormItem><FormLabel>Age</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )} />
                     </div>
                 </div>
 
                 <div className="space-y-4 p-4 border rounded-lg">
                     <h3 className="font-semibold text-lg">Secretary</h3>
                     <div className="grid grid-cols-2 gap-4">
-                        <FormField control={form.control} name="secretary.name" render={({ field }) => ( <FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                        <FormField control={form.control} name="secretary.contact" render={({ field }) => ( <FormItem><FormLabel>Contact</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="secretary.name" render={({ field }) => ( <FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="secretary.contact" render={({ field }) => ( <FormItem><FormLabel>Contact</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                     </div>
                 </div>
 
@@ -198,7 +204,7 @@ export default function CaptainProfileDialog({ brgyId, canEdit, children }: Prop
                         {fields.map((field, index) => (
                             <div key={field.id} className="flex items-end gap-2">
                                 <FormField control={form.control} name={`councilors.${index}.name`} render={({ field }) => ( <FormItem className="flex-1"><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                                <FormField control={form.control} name={`councilors.${index}.contact`} render={({ field }) => ( <FormItem className="flex-1"><FormLabel>Contact</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+                                <FormField control={form.control} name={`councilors.${index}.contact`} render={({ field }) => ( <FormItem className="flex-1"><FormLabel>Contact</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                                 <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="text-destructive"/></Button>
                             </div>
                         ))}
@@ -227,14 +233,25 @@ export default function CaptainProfileDialog({ brgyId, canEdit, children }: Prop
                     ) : (
                         <>
                             <div className="space-y-4 p-4 border rounded-lg">
-                                <h3 className="font-semibold text-lg">Captain</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <DetailItem label="Name" value={profileData.captain.name} />
+                                <div className="flex items-center gap-4">
+                                    <Avatar className="w-20 h-20 border">
+                                        <AvatarImage src={profileData.captain.photoURL || undefined} alt={profileData.captain.name} />
+                                        <AvatarFallback className="text-2xl">
+                                            {profileData.captain.name ? profileData.captain.name.split(' ').map(n => n[0]).join('').substring(0,2).toUpperCase() : <User />}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                    <div>
+                                        <h3 className="font-semibold text-2xl">{profileData.captain.name}</h3>
+                                        <p className="text-sm text-muted-foreground">Barangay Captain</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t mt-4">
                                     <DetailItem label="Contact" value={profileData.captain.contact} />
                                     <DetailItem label="Email" value={profileData.captain.email} />
                                     <DetailItem label="Birthday" value={profileData.captain.birthday} />
+                                    <DetailItem label="Age" value={profileData.captain.age > 0 ? profileData.captain.age : undefined} />
                                     <div className="md:col-span-2">
-                                      <DetailItem label="Address" value={profileData.captain.address} />
+                                        <DetailItem label="Address" value={profileData.captain.address} />
                                     </div>
                                 </div>
                             </div>
