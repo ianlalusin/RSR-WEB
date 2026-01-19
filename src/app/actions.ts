@@ -5,7 +5,7 @@ import {
   type GenerateBarangayProfilesInput,
 } from '@/ai/flows/generate-barangay-profiles';
 import { db } from '@/lib/firebase';
-import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department } from '@/lib/types';
+import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department, Position } from '@/lib/types';
 import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 export async function generateBarangayProfiles(input: GenerateBarangayProfilesInput) {
@@ -417,6 +417,90 @@ export async function deleteDepartment(id: string, actor: Actor) {
         const auditLogRef = doc(collection(db, 'auditLogs'));
         batch.set(auditLogRef, {
             entityType: 'department',
+            entityId: id,
+            action: 'delete',
+            changes: {},
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            createdAt: serverTimestamp(),
+        });
+
+        await batch.commit();
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+
+type AddPositionData = Omit<Position, 'id' | 'createdAt' | 'updatedAt'>;
+
+export async function addPosition(data: AddPositionData, actor: Actor) {
+    try {
+        const batch = writeBatch(db);
+        const newPosRef = doc(collection(db, 'positions'));
+        
+        batch.set(newPosRef, {
+            ...data,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        });
+
+        const auditLogRef = doc(collection(db, 'auditLogs'));
+        batch.set(auditLogRef, {
+            entityType: 'position',
+            entityId: newPosRef.id,
+            action: 'create',
+            changes: data,
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            createdAt: serverTimestamp(),
+        });
+        
+        await batch.commit();
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updatePosition(id: string, data: Partial<Omit<Position, 'id'>>, actor: Actor) {
+    try {
+        const batch = writeBatch(db);
+        const posDoc = doc(db, 'positions', id);
+        
+        batch.update(posDoc, {
+            ...data,
+            updatedAt: serverTimestamp(),
+        });
+
+        const auditLogRef = doc(collection(db, 'auditLogs'));
+        batch.set(auditLogRef, {
+            entityType: 'position',
+            entityId: id,
+            action: 'update',
+            changes: data,
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            createdAt: serverTimestamp(),
+        });
+
+        await batch.commit();
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deletePosition(id: string, actor: Actor) {
+    try {
+        const batch = writeBatch(db);
+        const posDoc = doc(db, 'positions', id);
+        batch.delete(posDoc);
+
+        const auditLogRef = doc(collection(db, 'auditLogs'));
+        batch.set(auditLogRef, {
+            entityType: 'position',
             entityId: id,
             action: 'delete',
             changes: {},

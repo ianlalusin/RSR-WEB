@@ -7,15 +7,15 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Coordinator, Department, UserProfile, PermissionKey, DepartmentScope } from '@/lib/types';
+import { Coordinator, Department, UserProfile, PermissionKey, DepartmentScope, Position, PositionBranch } from '@/lib/types';
 import { DataTable } from './data-table';
 import { columns as orgMemberColumns } from './columns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canManageDepartments } from '@/lib/permissions';
+import { canManageDepartments, canManagePositions } from '@/lib/permissions';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, MoreHorizontal, Trash2, Edit, Loader2 } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
@@ -52,7 +52,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
-import { addDepartment, updateDepartment, deleteDepartment } from '@/app/actions';
+import { addDepartment, updateDepartment, deleteDepartment, addPosition, updatePosition, deletePosition } from '@/app/actions';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -63,6 +63,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 const ALL_SCOPES: { id: DepartmentScope, label: string }[] = [
     { id: 'department', label: 'Department' },
@@ -192,8 +193,8 @@ function DepartmentFormDialog({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
-            <ScrollArea className="h-[60vh] p-4">
-              <div className="space-y-6">
+             <ScrollArea className="h-[60vh] p-4 -mx-4">
+              <div className="space-y-6 px-4">
                 {/* Basic Details */}
                 <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel>Name</FormLabel> <FormControl><Input placeholder="e.g., Finance" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                 <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl><Textarea placeholder="What does this department do?" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
@@ -440,6 +441,374 @@ function DepartmentsTab() {
   );
 }
 
+// --- Position Form ---
+const positionFormSchema = z.object({
+  name: z.string().min(2, 'Name is required.'),
+  branch: z.enum(['office', 'field']),
+  departmentIds: z.array(z.string()).default([]),
+  scopes: z.array(z.string()).default([]),
+});
+
+type PositionFormValues = z.infer<typeof positionFormSchema>;
+
+function PositionFormDialog({
+  position,
+  children,
+  onSuccess,
+}: {
+  position?: Position;
+  children: React.ReactNode;
+  onSuccess?: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [allDepartments, setAllDepartments] = useState<Department[]>([]);
+  const { toast } = useToast();
+  const { userProfile } = useAuth();
+  const isEditMode = !!position;
+
+  const form = useForm<PositionFormValues>({
+    resolver: zodResolver(positionFormSchema),
+    defaultValues: {
+      name: '',
+      branch: 'office',
+      departmentIds: [],
+      scopes: [],
+    },
+  });
+
+  useEffect(() => {
+    if (isOpen) {
+      const q = query(collection(db, 'departments'), orderBy('name', 'asc'));
+      const unsub = onSnapshot(q, (snap) => {
+        setAllDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Department)));
+      });
+      return () => unsub();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (position) {
+        form.reset({
+          name: position.name,
+          branch: position.branch,
+          departmentIds: position.departmentIds || [],
+          scopes: position.scopes || [],
+        });
+      } else {
+        form.reset({
+          name: '',
+          branch: 'office',
+          departmentIds: [],
+          scopes: [],
+        });
+      }
+    }
+  }, [isOpen, position, form]);
+
+  const onSubmit = async (values: PositionFormValues) => {
+    if (!userProfile) return;
+    const actor = { uid: userProfile.uid, email: userProfile.email };
+    try {
+      const result = isEditMode
+        ? await updatePosition(position.id, values, actor)
+        : await addPosition(values, actor);
+
+      if (result.success) {
+        toast({ title: `Position ${isEditMode ? 'updated' : 'added'}` });
+        setIsOpen(false);
+        onSuccess?.();
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Operation Failed', description: error.message });
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{isEditMode ? 'Edit Position' : 'Add New Position'}</DialogTitle>
+          <DialogDescription>Define a new role and its access levels.</DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <ScrollArea className="h-[60vh] -mx-4">
+              <div className="space-y-6 px-6">
+                <FormField control={form.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Position Name</FormLabel><FormControl><Input placeholder="e.g., Field Coordinator" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                
+                <FormField control={form.control} name="branch" render={({ field }) => (
+                  <FormItem className="space-y-3">
+                    <FormLabel>Branch</FormLabel>
+                    <FormControl>
+                      <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-row space-x-4">
+                        <FormItem className="flex items-center space-x-3 space-y-0">
+                          <FormControl><RadioGroupItem value="office" /></FormControl>
+                          <FormLabel className="font-normal">Office-based</FormLabel>
+                        </FormItem>
+                        <FormItem className="flex items-center space-x-3 space-y-0">
+                          <FormControl><RadioGroupItem value="field" /></FormControl>
+                          <FormLabel className="font-normal">Field-based</FormLabel>
+                        </FormItem>
+                      </RadioGroup>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                {allDepartments.length > 0 && (
+                  <FormField
+                    control={form.control}
+                    name="departmentIds"
+                    render={() => (
+                      <FormItem>
+                        <FormLabel className="font-semibold">Assignable to Departments</FormLabel>
+                        <div className="space-y-2 pt-2">
+                          {allDepartments.map((dept) => (
+                            <FormField key={dept.id} control={form.control} name="departmentIds"
+                              render={({ field }) => (
+                                <FormItem key={dept.id} className="flex flex-row items-start space-x-3 space-y-0">
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(dept.id)}
+                                      onCheckedChange={(checked) => {
+                                        return checked ? field.onChange([...field.value, dept.id]) : field.onChange(field.value?.filter((value) => value !== dept.id))
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormLabel className="font-normal">{dept.name}</FormLabel>
+                                </FormItem>
+                              )}
+                            />
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                <FormField
+                    control={form.control}
+                    name="scopes"
+                    render={() => (
+                        <FormItem>
+                            <FormLabel className="font-semibold">Data Access Scope</FormLabel>
+                            <div className="flex flex-row items-center space-x-4 pt-2">
+                            {ALL_SCOPES.map((scope) => (
+                                <FormField
+                                key={scope.id}
+                                control={form.control}
+                                name="scopes"
+                                render={({ field }) => (
+                                    <FormItem key={scope.id} className="flex flex-row items-start space-x-3 space-y-0">
+                                        <FormControl>
+                                            <Checkbox
+                                                checked={field.value?.includes(scope.id)}
+                                                onCheckedChange={(checked) => {
+                                                return checked
+                                                    ? field.onChange([...field.value, scope.id])
+                                                    : field.onChange(field.value?.filter((value) => value !== scope.id))
+                                                }}
+                                            />
+                                        </FormControl>
+                                        <FormLabel className="font-normal">{scope.label}</FormLabel>
+                                    </FormItem>
+                                )}
+                                />
+                            ))}
+                            </div>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+              </div>
+            </ScrollArea>
+            <DialogFooter className="pt-4">
+              <DialogClose asChild><Button type="button" variant="secondary">Cancel</Button></DialogClose>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {isEditMode ? 'Save Changes' : 'Create Position'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Delete Position Alert ---
+function DeletePositionAlert({ position, children, onSuccess }: { position: Position; children: React.ReactNode; onSuccess?: () => void; }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { toast } = useToast();
+  const { userProfile } = useAuth();
+
+  const handleDelete = async () => {
+    if (!userProfile) return;
+    const actor = { uid: userProfile.uid, email: userProfile.email };
+    setIsDeleting(true);
+    try {
+      const result = await deletePosition(position.id, actor);
+      if (result.success) {
+        toast({ title: 'Position Deleted' });
+        setIsOpen(false);
+        onSuccess?.();
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Deletion Failed', description: error.message });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
+      <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+          <AlertDialogDescription>This will permanently delete the <strong>{position.name}</strong> position.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90">
+            {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+// --- Positions Tab ---
+function PositionsTab() {
+  const { userProfile } = useAuth();
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const canManage = canManagePositions(userProfile);
+
+  useEffect(() => {
+    const posQuery = query(collection(db, 'positions'), orderBy('name', 'asc'));
+    const posUnsub = onSnapshot(posQuery, (snap) => {
+      setPositions(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Position)));
+      setLoading(false);
+    }, (error) => {
+      console.error("Failed to fetch positions:", error);
+      setLoading(false);
+    });
+    
+    const deptQuery = query(collection(db, 'departments'), orderBy('name', 'asc'));
+    const deptUnsub = onSnapshot(deptQuery, (snap) => {
+      setDepartments(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Department)));
+    });
+
+    return () => {
+      posUnsub();
+      deptUnsub();
+    };
+  }, []);
+
+  const departmentMap = useMemo(() => {
+    return departments.reduce((acc, dept) => {
+      acc[dept.id] = dept.name;
+      return acc;
+    }, {} as Record<string, string>);
+  }, [departments]);
+
+
+  const positionColumns: ColumnDef<Position>[] = [
+    { accessorKey: 'name', header: 'Position' },
+    { accessorKey: 'branch', header: 'Branch', cell: ({row}) => <Badge variant="outline" className="capitalize">{row.original.branch}</Badge> },
+    { 
+        accessorKey: 'departmentIds', 
+        header: 'Departments',
+        cell: ({ row }) => {
+            const deptIds = row.getValue('departmentIds') as string[] || [];
+            if (deptIds.length === 0) return <span className="text-muted-foreground text-xs">Any</span>
+            return (
+                <div className='flex flex-wrap gap-1'>
+                    {deptIds.map(id => <Badge key={id} variant="secondary">{departmentMap[id] || 'Unknown'}</Badge>)}
+                </div>
+            )
+        }
+    },
+    { 
+        accessorKey: 'scopes', 
+        header: 'Scopes',
+        cell: ({ row }) => {
+            const scopes = row.getValue('scopes') as DepartmentScope[] || [];
+            if (scopes.length === 0) return <span className="text-muted-foreground text-xs">Not set</span>
+            return (
+                <div className='flex flex-wrap gap-1'>
+                    {scopes.map(scope => <Badge key={scope} variant="secondary" className="capitalize">{scope}</Badge>)}
+                </div>
+            )
+        }
+    },
+    {
+      id: 'actions',
+      cell: ({ row }) => {
+        const position = row.original;
+        if (!canManage) return null;
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <PositionFormDialog position={position}>
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
+              </PositionFormDialog>
+              <DropdownMenuSeparator />
+               <DeletePositionAlert position={position}>
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                    <Trash2 className="mr-2 h-4 w-4" />Delete
+                </DropdownMenuItem>
+              </DeletePositionAlert>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ];
+
+  if (loading) {
+    return (
+        <div className="space-y-4 pt-4">
+            <div className="flex justify-end">
+                <Skeleton className="h-10 w-40" />
+            </div>
+            <Skeleton className="h-48 w-full" />
+        </div>
+    )
+  }
+
+  return (
+    <div>
+        <div className="flex justify-end py-4">
+            {canManage && (
+            <PositionFormDialog>
+                <Button><PlusCircle className="mr-2 h-4 w-4" />Add Position</Button>
+            </PositionFormDialog>
+            )}
+        </div>
+        <DataTable columns={positionColumns} data={positions} />
+    </div>
+  );
+}
+
+
 // --- Org Members Tab ---
 function OrgMembersTab() {
   const [orgMembers, setOrgMembers] = useState<Coordinator[]>([]);
@@ -470,7 +839,7 @@ export default function OrganizationPage() {
       <CardHeader>
         <CardTitle>Organization</CardTitle>
         <CardDescription>
-          Manage organization members and departments.
+          Manage organization members, departments, and positions.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -478,12 +847,16 @@ export default function OrganizationPage() {
           <TabsList>
             <TabsTrigger value="org-members">Org Members</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
+            <TabsTrigger value="positions">Positions</TabsTrigger>
           </TabsList>
           <TabsContent value="org-members">
             <OrgMembersTab />
           </TabsContent>
           <TabsContent value="departments">
             <DepartmentsTab />
+          </TabsContent>
+           <TabsContent value="positions">
+            <PositionsTab />
           </TabsContent>
         </Tabs>
       </CardContent>

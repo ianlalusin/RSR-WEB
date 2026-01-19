@@ -59,6 +59,12 @@ export function canManageDepartments(u: UserProfile | null | undefined): boolean
   return isAdmin(u);
 }
 
+// Specific check for managing positions. Admin-only for now.
+export function canManagePositions(u: UserProfile | null | undefined): boolean {
+  if (!u?.isActive) return false;
+  return isAdmin(u);
+}
+
 
 // Hard rule: delete operations are admin-only.
 export function canDelete(u: UserProfile | null | undefined): boolean {

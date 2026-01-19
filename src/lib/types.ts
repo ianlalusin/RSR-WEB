@@ -142,6 +142,19 @@ export interface Department {
   updatedAt: Timestamp;
 }
 
+export type PositionBranch = 'office' | 'field';
+
+export interface Position {
+  id: string;
+  name: string;
+  branch: PositionBranch;
+  departmentIds?: string[];
+  scopes?: DepartmentScope[];
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+
 export interface GlobalAnalytics {
     totalBarangays: number;
     totalCoordinators: number;
