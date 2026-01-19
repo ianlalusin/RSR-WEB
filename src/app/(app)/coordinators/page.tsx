@@ -124,15 +124,24 @@ function DepartmentFormDialog({
   });
   
   useEffect(() => {
-    if (department) {
+    if (isOpen) {
+      if (department) {
         form.reset({
-            name: department.name,
-            description: department.description || '',
-            scopes: department.scopes || [],
-            permissions: department.permissions || {},
-        })
+          name: department.name,
+          description: department.description || '',
+          scopes: department.scopes || [],
+          permissions: department.permissions || {},
+        });
+      } else {
+        form.reset({
+          name: '',
+          description: '',
+          scopes: [],
+          permissions: {},
+        });
+      }
     }
-  }, [department, form, isOpen]);
+  }, [isOpen, department, form]);
 
   const onSubmit = async (values: DepartmentFormValues) => {
     if (!userProfile) return;
