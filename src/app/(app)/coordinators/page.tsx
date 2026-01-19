@@ -62,6 +62,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const ALL_SCOPES: { id: DepartmentScope, label: string }[] = [
     { id: 'department', label: 'Department' },
@@ -190,8 +191,9 @@ function DepartmentFormDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-             <div className="max-h-[60vh] overflow-y-auto space-y-6 p-1">
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <ScrollArea className="h-[60vh]">
+              <div className="space-y-6 p-4">
                 {/* Basic Details */}
                 <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel>Name</FormLabel> <FormControl><Input placeholder="e.g., Finance" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                 <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl><Textarea placeholder="What does this department do?" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
@@ -280,9 +282,10 @@ function DepartmentFormDialog({
                         </TableBody>
                     </Table>
                 </div>
-             </div>
+              </div>
+            </ScrollArea>
 
-            <DialogFooter>
+            <DialogFooter className="pt-4">
               <DialogClose asChild><Button type="button" variant="secondary">Cancel</Button></DialogClose>
               <Button type="submit" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
