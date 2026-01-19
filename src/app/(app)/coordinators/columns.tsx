@@ -12,37 +12,57 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { differenceInYears } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 export const columns: ColumnDef<Coordinator>[] = [
+  {
+    accessorKey: 'employmentId',
+    header: 'Emp. ID',
+  },
   {
     accessorKey: 'name',
     header: 'Name',
   },
   {
-    accessorKey: 'contact',
-    header: 'Contact Info',
-  },
-  {
-    accessorKey: 'districtId',
-    header: 'District',
-  },
-  {
-    accessorKey: 'assignedBrgyIds',
-    header: 'Assigned Brgys',
+    header: 'Age',
     cell: ({ row }) => {
-        const brgys: string[] = row.getValue('assignedBrgyIds');
-        return brgys.length;
+        const birthday = row.original.birthday;
+        if (!birthday) return 'N/A';
+        // Firestore Timestamps can be converted with .toDate()
+        const birthDate = (birthday as any).toDate ? (birthday as any).toDate() : new Date(birthday as any);
+        return differenceInYears(new Date(), birthDate);
     }
+  },
+  {
+    accessorKey: 'departmentId',
+    header: 'Department',
+  },
+  {
+    accessorKey: 'role',
+    header: 'Role',
+  },
+  {
+    accessorKey: 'contact',
+    header: 'Contact No.',
   },
   {
     accessorKey: 'status',
     header: 'Status',
     cell: ({ row }) => {
-      const status = row.getValue('status');
-      const isActive = status === 'active';
+      const status = row.getValue('status') as string;
+      const variant: "default" | "secondary" | "outline" = 
+        status === 'active' ? 'default'
+        : status === 'on_leave' ? 'secondary'
+        : 'outline';
+      const className = 
+        status === 'active' ? 'bg-green-100 text-green-800'
+        : status === 'on_leave' ? 'bg-yellow-100 text-yellow-800'
+        : status === 'inactive' ? 'bg-red-100 text-red-800' : '';
+
       return (
-        <Badge variant={isActive ? 'default' : 'outline'} className={isActive ? 'bg-green-100 text-green-800' : ''}>
-          {isActive ? 'Active' : 'Inactive'}
+        <Badge variant={variant} className={cn('capitalize', className)}>
+          {status.replace(/_/g, ' ')}
         </Badge>
       );
     },
@@ -61,7 +81,7 @@ export const columns: ColumnDef<Coordinator>[] = [
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
             <DropdownMenuItem>View Details</DropdownMenuItem>
-            <DropdownMenuItem>Edit Coordinator</DropdownMenuItem>
+            <DropdownMenuItem>Edit Member</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       );

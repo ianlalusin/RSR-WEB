@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/card';
 import { Coordinator, Department, UserProfile, PermissionKey, DepartmentScope } from '@/lib/types';
 import { DataTable } from './data-table';
-import { columns as coordinatorsColumns } from './columns';
+import { columns as orgMemberColumns } from './columns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useEffect, useState } from 'react';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
@@ -155,7 +155,7 @@ function DepartmentFormDialog({
       if (result.success) {
         toast({
           title: `Department ${isEditMode ? 'updated' : 'added'}`,
-          description: `${values.name} has been successfully ${isEditMode ? 'updated' : 'saved'}.`,
+          description: `${values.name} has been successfully ${isEditMode ? 'saved' : 'saved'}.`,
         });
         setIsOpen(false);
         onSuccess?.();
@@ -192,8 +192,8 @@ function DepartmentFormDialog({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
-            <ScrollArea className="h-[60vh]">
-              <div className="space-y-6 p-4">
+            <ScrollArea className="h-[60vh] p-4">
+              <div className="space-y-6">
                 {/* Basic Details */}
                 <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel>Name</FormLabel> <FormControl><Input placeholder="e.g., Finance" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                 <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl><Textarea placeholder="What does this department do?" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
@@ -440,14 +440,14 @@ function DepartmentsTab() {
   );
 }
 
-// --- Coordinators Tab ---
-function CoordinatorsTab() {
-  const [coordinators, setCoordinators] = useState<Coordinator[]>([]);
+// --- Org Members Tab ---
+function OrgMembersTab() {
+  const [orgMembers, setOrgMembers] = useState<Coordinator[]>([]);
   const [loading, setLoading] = useState(true);
 
   // NOTE: This uses mock data. In a real app, you would fetch from Firestore.
   useEffect(() => {
-    setCoordinators(mockCoordinators);
+    setOrgMembers(mockCoordinators);
     setLoading(false);
   }, []);
   
@@ -460,7 +460,7 @@ function CoordinatorsTab() {
     )
   }
 
-  return <DataTable columns={coordinatorsColumns} data={coordinators} />;
+  return <DataTable columns={orgMemberColumns} data={orgMembers} />;
 }
 
 // --- Main Page Component ---
@@ -470,17 +470,17 @@ export default function OrganizationPage() {
       <CardHeader>
         <CardTitle>Organization</CardTitle>
         <CardDescription>
-          Manage coordinators and departments within the organization.
+          Manage organization members and departments.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue="coordinators" className="w-full">
+        <Tabs defaultValue="org-members" className="w-full">
           <TabsList>
-            <TabsTrigger value="coordinators">Coordinators</TabsTrigger>
+            <TabsTrigger value="org-members">Org Members</TabsTrigger>
             <TabsTrigger value="departments">Departments</TabsTrigger>
           </TabsList>
-          <TabsContent value="coordinators">
-            <CoordinatorsTab />
+          <TabsContent value="org-members">
+            <OrgMembersTab />
           </TabsContent>
           <TabsContent value="departments">
             <DepartmentsTab />

@@ -46,7 +46,6 @@ export interface Barangay {
   favoredVotePct: number;
   isWin: boolean;
   congVisitCount: number;
-  coordinatorUids: string[];
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -73,16 +72,20 @@ export interface CaptainProfile {
 
 export interface Coordinator {
   id: string;
+  employmentId: string;
   name: string;
   address: string;
   contact: string;
-  districtId: string;
-  status: 'active' | 'inactive';
-  assignedBrgyIds: string[];
-  lastReportAt: Timestamp | null;
-  reportCount: number;
+  gender: 'male' | 'female' | 'other' | 'prefer_not_to_say';
+  birthday: Timestamp;
+  departmentId: string; // Should link to Department.id
+  role: string;
+  employmentStartDate: Timestamp;
+  status: 'active' | 'inactive' | 'on_leave';
+  createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+
 
 export interface CoordinatorReport {
   id: string;
