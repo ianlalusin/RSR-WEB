@@ -173,3 +173,16 @@ export interface GeneratedProfile {
   income: number;
   [key: string]: any;
 }
+
+export interface DepartmentAnalytics {
+    name: string;
+    memberCount: number;
+}
+
+export interface AnalyticsData {
+    brgyWithProfileCount: number;
+    userCount: number;
+    departmentCount: number;
+    projectCount: number;
+    departments: DepartmentAnalytics[];
+}

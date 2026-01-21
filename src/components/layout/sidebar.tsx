@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Home, Landmark, Users, Shield, LogOut, HeartHandshake, Briefcase } from 'lucide-react';
+import { Home, Landmark, Users, Shield, LogOut, HeartHandshake, Briefcase, LineChart } from 'lucide-react';
 import { useAuth } from '../providers/auth-provider';
 import { cn } from '@/lib/utils';
 import { hasPerm } from '@/lib/permissions';
@@ -13,6 +13,7 @@ const navItems = [
   { href: '/barangays', icon: Landmark, label: 'Barangays' },
   { href: '/coordinators', icon: Briefcase, label: 'Organization' },
   { href: '/assistance', icon: HeartHandshake, label: 'Projects' },
+  { href: '/analytics', icon: LineChart, label: 'Analytics' },
 ];
 
 const adminNavItems = [
