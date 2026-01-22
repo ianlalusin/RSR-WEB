@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   collection,
   onSnapshot,
   query,
   orderBy,
+  getDocs,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
@@ -15,15 +16,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { UserProfile } from '@/lib/types';
+import { UserProfile, Department, Position } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
 import { isPlatformAdmin } from '@/lib/access';
-import { DataTable } from './data-table';
-import { columns } from './columns';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useRouter } from 'next/navigation';
-import UserAccessForm from './_components/user-access-form';
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import UserAccessRow from './_components/user-access-row';
 
 function AccessDenied() {
     return (
@@ -38,42 +35,111 @@ function AccessDenied() {
     );
 }
 
+interface GroupedUsers {
+    department: Department;
+    users: UserProfile[];
+}
+
 export default function UserManagementPage() {
   const { userProfile: actor } = useAuth();
-  const router = useRouter();
   const [users, setUsers] = useState<UserProfile[]>([]);
-  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [districts, setDistricts] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   const canManage = isPlatformAdmin(actor);
 
-  useEffect(() => {
-    if (!actor) return; // Wait for actor profile to load
+  const handleSuccess = () => {
+    // This function can be used to trigger a re-fetch or state update if needed
+    // For now, onSnapshot handles real-time updates.
+  }
 
+  useEffect(() => {
+    if (!actor) return;
     if (!canManage) {
-      // It's better to show an access denied message than to redirect immediately.
-      // A redirect can be jarring if the user briefly had access and then lost it.
       setLoading(false);
       return;
     }
 
-    const q = query(
-      collection(db, 'users'),
-      orderBy('displayName', 'asc')
-    );
-
-    const unsub = onSnapshot(q, (snap) => {
-      const data: UserProfile[] = snap.docs.map((d) => (d.data() as UserProfile));
-      setUsers(data);
-      setLoading(false);
+    const unsubUsers = onSnapshot(query(collection(db, 'users'), orderBy('displayName', 'asc')), (snap) => {
+        setUsers(snap.docs.map((d) => (d.data() as UserProfile)));
+        setLoading(false);
     }, (error) => {
       console.error("Failed to fetch users:", error);
       setLoading(false);
     });
 
-    return () => unsub();
-  }, [canManage, actor]);
+    const unsubDepartments = onSnapshot(query(collection(db, 'departments'), orderBy('name', 'asc')), (snap) => {
+        setDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Department)));
+    });
 
+    const unsubPositions = onSnapshot(query(collection(db, 'positions'), orderBy('name', 'asc')), (snap) => {
+        setPositions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Position)));
+    });
+    
+    const fetchDistricts = async () => {
+        const q = query(collection(db, 'barangays'));
+        const querySnapshot = await getDocs(q);
+        const uniqueDistricts = new Map<string, string>();
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            if(data.districtId && data.districtName) {
+                uniqueDistricts.set(data.districtId, data.districtName);
+            }
+        });
+        setDistricts(Array.from(uniqueDistricts, ([id, name]) => ({ id, name })).sort((a,b) => a.name.localeCompare(b.name)));
+    };
+    fetchDistricts();
+
+
+    return () => {
+        unsubUsers();
+        unsubDepartments();
+        unsubPositions();
+    };
+  }, [canManage, actor]);
+  
+  const groupedUsers = useMemo(() => {
+    if (!departments.length || !users.length) return [];
+    
+    const usersByDept: Record<string, UserProfile[]> = {};
+    const unassignedUsers: UserProfile[] = [];
+
+    users.forEach(user => {
+        if (user.departmentId && departments.find(d => d.id === user.departmentId)) {
+            if (!usersByDept[user.departmentId]) {
+                usersByDept[user.departmentId] = [];
+            }
+            usersByDept[user.departmentId].push(user);
+        } else {
+            unassignedUsers.push(user);
+        }
+    });
+
+    const sortedPositionIds = positions.sort((a, b) => a.name.localeCompare(b.name)).map(p => p.id);
+
+    const result: GroupedUsers[] = departments.map(dept => ({
+        department: dept,
+        users: (usersByDept[dept.id] || []).sort((a, b) => {
+            const posA = a.positionId ? sortedPositionIds.indexOf(a.positionId) : -1;
+            const posB = b.positionId ? sortedPositionIds.indexOf(b.positionId) : -1;
+            if (posA === posB) return (a.displayName || '').localeCompare(b.displayName || '');
+            if (posA === -1) return 1;
+            if (posB === -1) return -1;
+            return posA - posB;
+        }),
+    }));
+    
+    if (unassignedUsers.length > 0) {
+        result.push({
+            department: { id: 'unassigned', name: 'Unassigned', createdAt: new Date(), updatedAt: new Date(), description: 'Users not assigned to a department.' },
+            users: unassignedUsers.sort((a,b) => (a.displayName || '').localeCompare(b.displayName || ''))
+        });
+    }
+
+    return result.filter(group => group.users.length > 0);
+  }, [users, departments, positions]);
 
   if (loading) {
     return (
@@ -86,7 +152,8 @@ export default function UserManagementPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <Skeleton className="h-10 w-1/3" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
             <Skeleton className="h-48 w-full" />
           </div>
         </CardContent>
@@ -98,46 +165,39 @@ export default function UserManagementPage() {
     return <AccessDenied />;
   }
 
-  const onUserSelect = (user: UserProfile) => {
-    setSelectedUser(user);
-  };
-  
-  const handleSuccess = () => {
-    // The onSnapshot listener will automatically refresh the user list.
-    // If we want to refresh the selected user's data in the form, we can find it in the new list.
-    if(selectedUser) {
-        const updatedUser = users.find(u => u.uid === selectedUser.uid);
-        if (updatedUser) {
-            setSelectedUser(updatedUser);
-        }
-    }
-  }
-
   return (
-    <div className="h-[calc(100vh-8rem)]">
-        <ResizablePanelGroup direction="horizontal" className="h-full rounded-lg border">
-             <ResizablePanel defaultSize={40}>
-                <div className="p-4 h-full overflow-y-auto">
-                    <h2 className="text-xl font-bold tracking-tight">Users</h2>
-                    <p className="text-muted-foreground text-sm mb-4">Select a user to manage their access.</p>
-                    <DataTable columns={columns} data={users} onUserSelect={onUserSelect} selectedUserId={selectedUser?.uid} />
-                </div>
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={60}>
-                 <div className="p-6 h-full overflow-y-auto">
-                    <h2 className="text-xl font-bold tracking-tight">Access Control</h2>
-                    <p className="text-muted-foreground text-sm mb-4">Edit permissions for the selected user.</p>
-                    {selectedUser ? (
-                        <UserAccessForm key={selectedUser.uid} user={selectedUser} actor={actor!} onSuccess={handleSuccess} />
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground">
-                            <p>Select a user from the list to begin editing.</p>
-                        </div>
-                    )}
-                </div>
-            </ResizablePanel>
-        </ResizablePanelGroup>
+    <div className="space-y-6">
+        <Card>
+            <CardHeader>
+                <CardTitle>User Access Management</CardTitle>
+                <CardDescription>
+                    Manage user departments, positions, and page access permissions. Click on a user to expand their settings.
+                </CardDescription>
+            </CardHeader>
+        </Card>
+        <div className="space-y-6">
+            {groupedUsers.map(({ department, users }) => (
+                <Card key={department.id}>
+                    <CardHeader>
+                        <CardTitle>{department.name}</CardTitle>
+                        <CardDescription>{users.length} member(s)</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                        {users.map(user => (
+                            <UserAccessRow 
+                                key={user.uid}
+                                user={user}
+                                actor={actor!}
+                                departments={departments}
+                                positions={positions}
+                                districts={districts}
+                                onSuccess={handleSuccess}
+                            />
+                        ))}
+                    </CardContent>
+                </Card>
+            ))}
+        </div>
     </div>
   );
 }
