@@ -311,6 +311,7 @@ export default function UserAccessForm({ user, actor, onSuccess }: Props) {
                                                 <SelectItem value="restricted">Restricted</SelectItem>
                                                 <SelectItem value="readonly">Read-Only</SelectItem>
                                                 <SelectItem value="readwrite">Read & Write</SelectItem>
+                                                <SelectItem value="full">Full Access</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     )}

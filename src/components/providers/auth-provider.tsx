@@ -49,7 +49,7 @@ const defaultAccess = {
 
 const platformAdminAccess = {
     pages: ALL_PAGE_KEYS.reduce((acc, key) => {
-        acc[key] = { level: 'readwrite' };
+        acc[key] = { level: 'full' };
         return acc;
     }, {} as Record<PageKey, { level: AccessLevel }>),
     districtIds: [],

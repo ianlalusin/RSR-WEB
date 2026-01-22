@@ -28,7 +28,7 @@ export type PageKey =
   | 'admin_users';
 
 // NEW: Access levels for pages
-export type AccessLevel = 'restricted' | 'readonly' | 'readwrite';
+export type AccessLevel = 'restricted' | 'readonly' | 'readwrite' | 'full';
 
 // NEW: Structure for page-specific access
 export interface PageAccess {

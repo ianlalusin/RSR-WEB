@@ -1,4 +1,3 @@
-
 import type { UserProfile, PageKey } from './types';
 
 export const ALL_PAGE_KEYS: PageKey[] = [
@@ -68,17 +67,21 @@ export function canDo(u: UserProfile | null, page: PageKey, action: 'read' | 'cr
     // ✅ Full bypass for platform admin
     if (isPlatformAdmin(u)) return true;
 
-    // Specific rule for deletion for non-platform-admins
-    if (action === 'delete') {
-        return isOfficeAdmin(u);
-    }
-
     const level = u.access?.pages?.[page]?.level ?? 'restricted';
 
-    if (level === 'restricted') return false;
-    if (level === 'readonly') return action === 'read';
-    if (level === 'readwrite') return true; // read, create, update are allowed
+    if (level === 'full') {
+        return true;
+    }
+    
+    if (level === 'readwrite') {
+        return action !== 'delete';
+    }
 
+    if (level === 'readonly') {
+        return action === 'read';
+    }
+    
+    // level is 'restricted' or unhandled
     return false;
 }
 
