@@ -35,14 +35,14 @@ export const columns: ColumnDef<UserProfile>[] = [
     cell: ({ row }) => {
       const positionId = row.getValue('positionId') as string;
       const positionName =
-        positionId === 'platform_admin'
+        positionId === 'platformAdmin'
           ? 'Platform Admin'
-          : positionId === 'office_admin'
+          : positionId === 'officeAdmin'
           ? 'Office Admin'
           : 'N/A';
       return (
         <Badge
-          variant={positionId === 'platform_admin' ? 'default' : 'secondary'}
+          variant={positionId === 'platformAdmin' ? 'default' : 'secondary'}
         >
           {positionName}
         </Badge>

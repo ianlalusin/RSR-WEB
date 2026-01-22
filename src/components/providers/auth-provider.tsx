@@ -83,7 +83,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             photoURL: firebaseUser.photoURL || null,
             isActive: isSeedAdmin, // Only seed admin is active by default
             departmentId: isSeedAdmin ? 'admin' : undefined,
-            positionId: isSeedAdmin ? 'platform_admin' : undefined,
+            positionId: isSeedAdmin ? 'platformAdmin' : undefined,
             access: isSeedAdmin ? platformAdminAccess : defaultAccess,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),

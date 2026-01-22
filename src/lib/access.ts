@@ -1,5 +1,5 @@
 
-import type { UserProfile, PageKey, AccessLevel } from './types';
+import type { UserProfile, PageKey } from './types';
 
 export const ALL_PAGE_KEYS: PageKey[] = [
     'dashboard',
@@ -20,8 +20,8 @@ export const ALL_PAGE_KEYS: PageKey[] = [
  * @param u The user profile.
  * @returns boolean
  */
-export function isPlatformAdmin(u?: UserProfile | null): boolean {
-    return u?.isActive === true && u?.positionId === 'platform_admin';
+export function isPlatformAdmin(u: UserProfile | null): boolean {
+    return !!u && u.isActive && u.positionId === 'platformAdmin';
 }
 
 /**
@@ -30,69 +30,56 @@ export function isPlatformAdmin(u?: UserProfile | null): boolean {
  * @param u The user profile.
  * @returns boolean
  */
-export function isOfficeAdmin(u?: UserProfile | null): boolean {
-    return u?.isActive === true && u?.positionId === 'office_admin';
+export function isOfficeAdmin(u: UserProfile | null): boolean {
+    return !!u && u.isActive && u.positionId === 'officeAdmin';
 }
-
-
-/**
- * Gets the access level for a specific page.
- * @param u The user profile.
- * @param pageKey The key of the page to check.
- * @returns AccessLevel ('restricted', 'readonly', 'readwrite')
- */
-function getPageAccess(u: UserProfile | null | undefined, pageKey: PageKey): AccessLevel {
-    if (!u || !u.isActive) {
-        return 'restricted';
-    }
-    // Platform Admin has full access to everything except profile which is user-specific.
-    if (pageKey !== 'profile' && isPlatformAdmin(u)) {
-        return 'readwrite';
-    }
-    return u.access?.pages?.[pageKey]?.level || 'restricted';
-}
-
 
 /**
  * Checks if a user can view a specific page.
  * @param u The user profile.
- * @param pageKey The key of the page to check.
+ * @param page The key of the page to check.
  * @returns boolean
  */
-export function canViewPage(u: UserProfile | null | undefined, pageKey: PageKey): boolean {
-    // Special hard-gate for admin_users page
-    if (pageKey === 'admin_users') {
-        return isPlatformAdmin(u);
+export function canViewPage(u: UserProfile | null, page: PageKey): boolean {
+    if (!u?.isActive) return false;
+
+    // ✅ Full bypass for platform admin
+    if (isPlatformAdmin(u)) return true;
+
+    // safe defaults for users with no access configured yet
+    if (!u.access?.pages) {
+        return page === 'dashboard' || page === 'profile';
     }
-    const level = getPageAccess(u, pageKey);
-    return level === 'readonly' || level === 'readwrite';
+
+    return u.access.pages[page]?.level !== 'restricted';
 }
 
 
 /**
  * Checks if a user can perform a specific action on a page.
  * @param u The user profile.
- * @param pageKey The key of the page to check.
+ * @param page The key of the page to check.
  * @param action The action to perform ('read', 'create', 'update', 'delete').
  * @returns boolean
  */
-export function canDo(u: UserProfile | null | undefined, pageKey: PageKey, action: 'read' | 'create' | 'update' | 'delete'): boolean {
-    if (!u || !u.isActive) return false;
+export function canDo(u: UserProfile | null, page: PageKey, action: 'read' | 'create' | 'update' | 'delete'): boolean {
+    if (!u?.isActive) return false;
 
-    const level = getPageAccess(u, pageKey);
+    // ✅ Full bypass for platform admin
+    if (isPlatformAdmin(u)) return true;
 
-    switch (action) {
-        case 'read':
-            return level === 'readonly' || level === 'readwrite';
-        case 'create':
-        case 'update':
-            return level === 'readwrite';
-        case 'delete':
-            // By design, restrict delete operations to admins for safety.
-            return isPlatformAdmin(u) || isOfficeAdmin(u);
-        default:
-            return false;
+    // Specific rule for deletion for non-platform-admins
+    if (action === 'delete') {
+        return isOfficeAdmin(u);
     }
+
+    const level = u.access?.pages?.[page]?.level ?? 'restricted';
+
+    if (level === 'restricted') return false;
+    if (level === 'readonly') return action === 'read';
+    if (level === 'readwrite') return true; // read, create, update are allowed
+
+    return false;
 }
 
 

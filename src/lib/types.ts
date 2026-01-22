@@ -44,7 +44,7 @@ export interface UserProfile {
   isActive: boolean;
   
   departmentId?: string; // e.g., 'finance', 'operations'
-  positionId?: string;   // e.g., 'platform_admin', 'office_admin'
+  positionId?: string;   // e.g., 'platformAdmin', 'officeAdmin'
 
   // NEW: Centralized access control object
   access: {
