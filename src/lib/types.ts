@@ -14,20 +14,52 @@ export type UserRole =
   | 'district_assistant'
   | 'coordinator';
 
+// NEW: PageKeys for granular page access
+export type PageKey =
+  | 'dashboard'
+  | 'barangays_list'
+  | 'barangay_detail'
+  | 'organization_orgMembers'
+  | 'organization_departments'
+  | 'organization_positions'
+  | 'assistance_projects'
+  | 'analytics'
+  | 'profile'
+  | 'admin_users';
+
+// NEW: Access levels for pages
+export type AccessLevel = 'restricted' | 'readonly' | 'readwrite';
+
+// NEW: Structure for page-specific access
+export interface PageAccess {
+  level: AccessLevel;
+}
+
+// UPDATED: UserProfile with new access control model
 export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
   photoURL?: string | null;
-  roles: UserRole[];
-  permissions: { [key: string]: boolean };
-  departments?: string[];
-  districtIds?: string[];
-  coordinatorBrgyIds?: string[];
   isActive: boolean;
+  
+  departmentId?: string; // e.g., 'finance', 'operations'
+  positionId?: string;   // e.g., 'platform_admin', 'office_admin'
+
+  // NEW: Centralized access control object
+  access: {
+    pages: Partial<Record<PageKey, PageAccess>>;
+    districtIds: string[];
+  };
+
+  // DEPRECATED: Old permission fields (can be removed after migration)
+  roles?: UserRole[];
+  permissions?: { [key: string]: boolean };
+
   createdAt: Timestamp | Date;
   updatedAt: Timestamp | Date;
 }
+
 
 export interface District {
   id: string;
@@ -120,36 +152,19 @@ export interface ProjectRecord {
   updatedAt: Timestamp;
 }
 
-export type PermissionKey = 'barangays' | 'barangayCaptain' | 'coordinators' | 'projects' | 'users';
-
-export type DepartmentPermissions = {
-  read?: boolean;
-  add?: boolean;
-  edit?: boolean;
-  delete?: boolean;
-};
-
-export type DepartmentScope = 'department' | 'district' | 'brgy';
-
+// UPDATED: Department is now just metadata
 export interface Department {
   id: string;
   name: string;
   description?: string;
-  headUid?: string;
-  scopes?: DepartmentScope[];
-  permissions?: Partial<Record<PermissionKey, DepartmentPermissions>>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
-export type PositionBranch = 'office' | 'field';
-
+// UPDATED: Position is now just metadata
 export interface Position {
   id: string;
   name: string;
-  branch: PositionBranch;
-  departmentIds?: string[];
-  scopes?: DepartmentScope[];
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -185,4 +200,19 @@ export interface AnalyticsData {
     departmentCount: number;
     projectCount: number;
     departments: DepartmentAnalytics[];
+}
+
+export type AuditLogAction = 'access_update' | 'create' | 'update' | 'delete' | 'bulk_update' | 'generate_ai_profile';
+export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'department' | 'position' | 'system';
+
+export interface AuditLog {
+    id?: string;
+    actorUid: string;
+    actorEmail: string | null;
+    action: AuditLogAction;
+    entityType: AuditLogEntityType;
+    entityId: string;
+    districtId?: string;
+    details?: any;
+    timestamp: Timestamp;
 }

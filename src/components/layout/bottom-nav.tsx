@@ -11,37 +11,45 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from '../ui/button';
 import { useAuth } from '../providers/auth-provider';
-import { canManageUsers } from '@/lib/permissions';
+import { canViewPage, isPlatformAdmin } from '@/lib/access';
+import { PageKey } from '@/lib/types';
 
+interface NavItem {
+    href: string;
+    icon: React.ElementType;
+    label: string;
+    pageKey: PageKey;
+}
 
-const navItems = [
-  { href: '/', icon: Home, label: 'Dashboard' },
-  { href: '/barangays', icon: Landmark, label: 'Barangays' },
-  { href: '/coordinators', icon: Briefcase, label: 'Organization' },
-  { href: '/assistance', icon: HeartHandshake, label: 'Projects' },
-  { href: '/analytics', icon: LineChart, label: 'Analytics' },
+const navItems: NavItem[] = [
+  { href: '/', icon: Home, label: 'Dashboard', pageKey: 'dashboard' },
+  { href: '/barangays', icon: Landmark, label: 'Barangays', pageKey: 'barangays_list' },
+  { href: '/coordinators', icon: Briefcase, label: 'Organization', pageKey: 'organization_orgMembers' },
+  { href: '/assistance', icon: HeartHandshake, label: 'Projects', pageKey: 'assistance_projects' },
+  { href: '/analytics', icon: LineChart, label: 'Analytics', pageKey: 'analytics' },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
   const { logout, userProfile } = useAuth();
-  const canManage = canManageUsers(userProfile);
-
+  
   return (
     <nav className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 backdrop-blur-sm sm:hidden">
       <div className="flex h-16 items-center justify-around">
         {navItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              'flex flex-col items-center gap-1 p-2 rounded-md text-muted-foreground transition-colors hover:text-foreground',
-              (pathname.startsWith(item.href) && item.href !== '/') || pathname === item.href ? 'text-primary font-semibold' : ''
-            )}
-          >
-            <item.icon className="h-6 w-6" />
-            <span className="text-xs">{item.label}</span>
-          </Link>
+          canViewPage(userProfile, item.pageKey) && (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex flex-col items-center gap-1 p-2 rounded-md text-muted-foreground transition-colors hover:text-foreground',
+                (pathname.startsWith(item.href) && item.href !== '/') || pathname === item.href ? 'text-primary font-semibold' : ''
+              )}
+            >
+              <item.icon className="h-6 w-6" />
+              <span className="text-xs">{item.label}</span>
+            </Link>
+          )
         ))}
         <Sheet>
           <SheetTrigger asChild>
@@ -52,13 +60,15 @@ export function BottomNav() {
           </SheetTrigger>
           <SheetContent side="bottom" className='h-auto rounded-t-lg'>
               <div className="grid grid-cols-2 gap-2 p-4">
-                  <Button asChild variant="outline" className="flex-col h-20">
-                    <Link href="/profile">
-                      <User className="h-6 w-6 mb-1"/>
-                      Profile
-                    </Link>
-                  </Button>
-                  {canManage && (
+                  {canViewPage(userProfile, 'profile') && (
+                    <Button asChild variant="outline" className="flex-col h-20">
+                        <Link href="/profile">
+                        <User className="h-6 w-6 mb-1"/>
+                        Profile
+                        </Link>
+                    </Button>
+                  )}
+                  {isPlatformAdmin(userProfile) && (
                     <Button asChild variant="outline" className="flex-col h-20">
                       <Link href="/admin/users">
                         <Shield className="h-6 w-6 mb-1"/>

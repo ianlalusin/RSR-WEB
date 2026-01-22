@@ -2,8 +2,11 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Building, GraduationCap, HeartPulse } from 'lucide-react';
+import { Building, GraduationCap, HeartPulse, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
+import { useAuth } from '@/components/providers/auth-provider';
+import { canViewPage } from '@/lib/access';
+
 
 const projectTypes = [
     {
@@ -26,7 +29,26 @@ const projectTypes = [
     }
 ]
 
+function AccessDenied() {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive" /> Access Denied</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p>You do not have permission to view this page.</p>
+        </CardContent>
+      </Card>
+    );
+}
+
 export default function RSRProjectsPage() {
+  const { userProfile } = useAuth();
+  
+  if (!canViewPage(userProfile, 'assistance_projects')) {
+    return <AccessDenied />;
+  }
+  
   return (
     <div className="grid gap-6">
         <Card>
@@ -43,7 +65,7 @@ export default function RSRProjectsPage() {
                         <Card key={type.href}>
                             <CardHeader className="flex flex-row items-start gap-4 space-y-0">
                                 <div className="p-3 bg-primary/10 rounded-md">
-                                    <type.icon className="w-6 h-6 text-primary-foreground" />
+                                    <type.icon className="w-6 h-6 text-primary" />
                                 </div>
                                 <div>
                                     <CardTitle>{type.title}</CardTitle>

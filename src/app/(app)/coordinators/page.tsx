@@ -7,7 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Coordinator, Department, UserProfile, PermissionKey, DepartmentScope, Position, PositionBranch } from '@/lib/types';
+import { Coordinator, Department, Position, UserProfile } from '@/lib/types';
 import { DataTable } from './data-table';
 import { columns as orgMemberColumns } from './columns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,9 +15,9 @@ import { useEffect, useState, useMemo } from 'react';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canManageDepartments, canManagePositions } from '@/lib/permissions';
+import { canViewPage, canDo, isPlatformAdmin } from '@/lib/access';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, MoreHorizontal, Trash2, Edit, Loader2 } from 'lucide-react';
+import { PlusCircle, MoreHorizontal, Trash2, Edit, Loader2, AlertTriangle } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import {
   DropdownMenu,
@@ -48,7 +48,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
@@ -58,40 +58,13 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { mockCoordinators } from '@/lib/data';
-import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Separator } from '@/components/ui/separator';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-
-const ALL_SCOPES: { id: DepartmentScope, label: string }[] = [
-    { id: 'department', label: 'Department' },
-    { id: 'district', label: 'District' },
-    { id: 'brgy', label: 'Barangay' },
-];
-
-const PERMISSION_CONFIG: Record<PermissionKey, { label: string }> = {
-  barangays: { label: 'Barangays' },
-  barangayCaptain: { label: 'Barangay Captain Profile' },
-  coordinators: { label: 'Coordinators' },
-  projects: { label: 'RSR Projects' },
-  users: { label: 'User Management' },
-};
-const PERMISSION_KEYS = Object.keys(PERMISSION_CONFIG) as PermissionKey[];
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 
 // --- Department Form ---
 const departmentFormSchema = z.object({
   name: z.string().min(2, 'Name is required.'),
   description: z.string().optional(),
-  scopes: z.array(z.string()).default([]),
-  permissions: z.record(z.string(), z.object({
-    read: z.boolean().default(false),
-    add: z.boolean().default(false),
-    edit: z.boolean().default(false),
-    delete: z.boolean().default(false),
-  })).default({}),
 });
 
 type DepartmentFormValues = z.infer<typeof departmentFormSchema>;
@@ -115,35 +88,17 @@ function DepartmentFormDialog({
     defaultValues: isEditMode ? {
         name: department.name,
         description: department.description || '',
-        scopes: department.scopes || [],
-        permissions: department.permissions || {},
     } : {
         name: '',
         description: '',
-        scopes: [],
-        permissions: {},
     },
   });
   
   useEffect(() => {
     if (isOpen) {
-      if (department) {
-        form.reset({
-          name: department.name,
-          description: department.description || '',
-          scopes: department.scopes || [],
-          permissions: department.permissions || {},
-        });
-      } else {
-        form.reset({
-          name: '',
-          description: '',
-          scopes: [],
-          permissions: {},
-        });
-      }
+        form.reset(isEditMode ? { name: department.name, description: department.description || '' } : { name: '', description: '' });
     }
-  }, [isOpen, department, form]);
+  }, [isOpen, department, form, isEditMode]);
 
   const onSubmit = async (values: DepartmentFormValues) => {
     if (!userProfile) return;
@@ -156,7 +111,6 @@ function DepartmentFormDialog({
       if (result.success) {
         toast({
           title: `Department ${isEditMode ? 'updated' : 'added'}`,
-          description: `${values.name} has been successfully ${isEditMode ? 'saved' : 'saved'}.`,
         });
         setIsOpen(false);
         onSuccess?.();
@@ -172,120 +126,20 @@ function DepartmentFormDialog({
     }
   };
 
-  const handleAllPermissionChange = (key: PermissionKey, checked: boolean) => {
-    form.setValue(`permissions.${key}.read`, checked);
-    form.setValue(`permissions.${key}.add`, checked);
-    form.setValue(`permissions.${key}.edit`, checked);
-    form.setValue(`permissions.${key}.delete`, checked);
-  };
-
-  const watchedPermissions = form.watch('permissions');
-
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{isEditMode ? 'Edit Department' : 'Add New Department'}</DialogTitle>
            <DialogDescription>
-            Configure department details, data access scope, and page permissions.
+            Departments are for organizational grouping only. Permissions are managed per-user in User Access Management.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-             <ScrollArea className="h-[60vh] p-4 -mx-4">
-              <div className="space-y-6 px-4">
-                {/* Basic Details */}
-                <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel>Name</FormLabel> <FormControl><Input placeholder="e.g., Finance" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl><Textarea placeholder="What does this department do?" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                
-                <Separator />
-
-                {/* Data Access Scope */}
-                <FormField
-                    control={form.control}
-                    name="scopes"
-                    render={() => (
-                        <FormItem>
-                            <FormLabel className="text-base font-semibold">Data Access Scope</FormLabel>
-                            <FormMessage />
-                            <div className="flex flex-row items-center space-x-4 pt-2">
-                            {ALL_SCOPES.map((scope) => (
-                                <FormField
-                                key={scope.id}
-                                control={form.control}
-                                name="scopes"
-                                render={({ field }) => (
-                                    <FormItem key={scope.id} className="flex flex-row items-start space-x-3 space-y-0">
-                                        <FormControl>
-                                            <Checkbox
-                                                checked={field.value?.includes(scope.id)}
-                                                onCheckedChange={(checked) => {
-                                                return checked
-                                                    ? field.onChange([...field.value, scope.id])
-                                                    : field.onChange(field.value?.filter((value) => value !== scope.id))
-                                                }}
-                                            />
-                                        </FormControl>
-                                        <FormLabel className="font-normal">{scope.label}</FormLabel>
-                                    </FormItem>
-                                )}
-                                />
-                            ))}
-                            </div>
-                        </FormItem>
-                    )}
-                />
-
-                <Separator />
-                
-                {/* Permissions Matrix */}
-                <div className='space-y-2'>
-                    <FormLabel className="text-base font-semibold">Page & Data Permissions</FormLabel>
-                     <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Page / Data</TableHead>
-                                <TableHead className="text-center">Read</TableHead>
-                                <TableHead className="text-center">Add</TableHead>
-                                <TableHead className="text-center">Edit</TableHead>
-                                <TableHead className="text-center">Delete</TableHead>
-                                <TableHead className="text-center">All</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {PERMISSION_KEYS.map((key) => {
-                                const currentPerms = watchedPermissions?.[key] || {};
-                                const allChecked = currentPerms.read && currentPerms.add && currentPerms.edit && currentPerms.delete;
-                                return (
-                                    <TableRow key={key}>
-                                        <TableCell className="font-medium">{PERMISSION_CONFIG[key].label}</TableCell>
-                                        {(['read', 'add', 'edit', 'delete'] as const).map((action) => (
-                                            <TableCell key={action} className="text-center">
-                                                <Controller
-                                                    name={`permissions.${key}.${action}`}
-                                                    control={form.control}
-                                                    render={({ field }) => (
-                                                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                                                    )}
-                                                />
-                                            </TableCell>
-                                        ))}
-                                        <TableCell className="text-center">
-                                            <Checkbox
-                                                checked={allChecked}
-                                                onCheckedChange={(checked) => handleAllPermissionChange(key, !!checked)}
-                                            />
-                                        </TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                        </TableBody>
-                    </Table>
-                </div>
-              </div>
-            </ScrollArea>
-
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField control={form.control} name="name" render={({ field }) => ( <FormItem> <FormLabel>Name</FormLabel> <FormControl><Input placeholder="e.g., Finance" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+            <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Description</FormLabel> <FormControl><Textarea placeholder="What does this department do?" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
             <DialogFooter className="pt-4">
               <DialogClose asChild><Button type="button" variant="secondary">Cancel</Button></DialogClose>
               <Button type="submit" disabled={form.formState.isSubmitting}>
@@ -357,7 +211,8 @@ function DepartmentsTab() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canManage = canManageDepartments(userProfile);
+  const canWrite = canDo(userProfile, 'organization_departments', 'update');
+  const canDel = canDo(userProfile, 'organization_departments', 'delete');
 
   useEffect(() => {
     const q = query(collection(db, 'departments'), orderBy('name', 'asc'));
@@ -374,26 +229,14 @@ function DepartmentsTab() {
 
   const departmentColumns: ColumnDef<Department>[] = [
     { accessorKey: 'name', header: 'Name' },
-    { 
-        accessorKey: 'scopes', 
-        header: 'Scopes',
-        cell: ({ row }) => {
-            const scopes: DepartmentScope[] = row.getValue('scopes') || [];
-            if (scopes.length === 0) return <span className="text-muted-foreground text-xs">Not set</span>
-            return (
-                <div className='flex flex-wrap gap-1'>
-                    {scopes.map(scope => <Badge key={scope} variant="secondary" className="capitalize">{scope}</Badge>)}
-                </div>
-            )
-        }
-    },
     { accessorKey: 'description', header: 'Description', cell: ({row}) => <p className='line-clamp-2 text-muted-foreground text-xs'>{row.original.description || 'N/A'}</p> },
     {
       id: 'actions',
       cell: ({ row }) => {
         const department = row.original;
-        if (!canManage) return null;
+        if (!canWrite) return null;
         return (
+          <div className="text-right">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button>
@@ -403,14 +246,17 @@ function DepartmentsTab() {
               <DepartmentFormDialog department={department}>
                 <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
               </DepartmentFormDialog>
-              <DropdownMenuSeparator />
-               <DeleteDepartmentAlert department={department}>
-                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
-                    <Trash2 className="mr-2 h-4 w-4" />Delete
-                </DropdownMenuItem>
-              </DeleteDepartmentAlert>
+              {canDel && <>
+                <DropdownMenuSeparator />
+                <DeleteDepartmentAlert department={department}>
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                        <Trash2 className="mr-2 h-4 w-4" />Delete
+                    </DropdownMenuItem>
+                </DeleteDepartmentAlert>
+              </>}
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         );
       },
     },
@@ -430,7 +276,7 @@ function DepartmentsTab() {
   return (
     <div>
         <div className="flex justify-end py-4">
-            {canManage && (
+            {canWrite && (
             <DepartmentFormDialog>
                 <Button><PlusCircle className="mr-2 h-4 w-4" />Add Department</Button>
             </DepartmentFormDialog>
@@ -444,9 +290,6 @@ function DepartmentsTab() {
 // --- Position Form ---
 const positionFormSchema = z.object({
   name: z.string().min(2, 'Name is required.'),
-  branch: z.enum(['office', 'field']),
-  departmentIds: z.array(z.string()).default([]),
-  scopes: z.array(z.string()).default([]),
 });
 
 type PositionFormValues = z.infer<typeof positionFormSchema>;
@@ -461,50 +304,20 @@ function PositionFormDialog({
   onSuccess?: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [allDepartments, setAllDepartments] = useState<Department[]>([]);
   const { toast } = useToast();
   const { userProfile } = useAuth();
   const isEditMode = !!position;
 
   const form = useForm<PositionFormValues>({
     resolver: zodResolver(positionFormSchema),
-    defaultValues: {
-      name: '',
-      branch: 'office',
-      departmentIds: [],
-      scopes: [],
-    },
+    defaultValues: { name: '' },
   });
 
   useEffect(() => {
     if (isOpen) {
-      const q = query(collection(db, 'departments'), orderBy('name', 'asc'));
-      const unsub = onSnapshot(q, (snap) => {
-        setAllDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Department)));
-      });
-      return () => unsub();
+        form.reset(isEditMode ? { name: position.name } : { name: ''});
     }
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (isOpen) {
-      if (position) {
-        form.reset({
-          name: position.name,
-          branch: position.branch,
-          departmentIds: position.departmentIds || [],
-          scopes: position.scopes || [],
-        });
-      } else {
-        form.reset({
-          name: '',
-          branch: 'office',
-          departmentIds: [],
-          scopes: [],
-        });
-      }
-    }
-  }, [isOpen, position, form]);
+  }, [isOpen, position, form, isEditMode]);
 
   const onSubmit = async (values: PositionFormValues) => {
     if (!userProfile) return;
@@ -529,104 +342,14 @@ function PositionFormDialog({
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{isEditMode ? 'Edit Position' : 'Add New Position'}</DialogTitle>
-          <DialogDescription>Define a new role and its access levels.</DialogDescription>
+          <DialogDescription>Positions are for organizational grouping only. Permissions are managed per-user.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <ScrollArea className="h-[60vh] -mx-4">
-              <div className="space-y-6 px-6">
-                <FormField control={form.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Position Name</FormLabel><FormControl><Input placeholder="e.g., Field Coordinator" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                
-                <FormField control={form.control} name="branch" render={({ field }) => (
-                  <FormItem className="space-y-3">
-                    <FormLabel>Branch</FormLabel>
-                    <FormControl>
-                      <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-row space-x-4">
-                        <FormItem className="flex items-center space-x-3 space-y-0">
-                          <FormControl><RadioGroupItem value="office" /></FormControl>
-                          <FormLabel className="font-normal">Office-based</FormLabel>
-                        </FormItem>
-                        <FormItem className="flex items-center space-x-3 space-y-0">
-                          <FormControl><RadioGroupItem value="field" /></FormControl>
-                          <FormLabel className="font-normal">Field-based</FormLabel>
-                        </FormItem>
-                      </RadioGroup>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-
-                {allDepartments.length > 0 && (
-                  <FormField
-                    control={form.control}
-                    name="departmentIds"
-                    render={() => (
-                      <FormItem>
-                        <FormLabel className="font-semibold">Assignable to Departments</FormLabel>
-                        <div className="space-y-2 pt-2">
-                          {allDepartments.map((dept) => (
-                            <FormField key={dept.id} control={form.control} name="departmentIds"
-                              render={({ field }) => (
-                                <FormItem key={dept.id} className="flex flex-row items-start space-x-3 space-y-0">
-                                  <FormControl>
-                                    <Checkbox
-                                      checked={field.value?.includes(dept.id)}
-                                      onCheckedChange={(checked) => {
-                                        return checked ? field.onChange([...field.value, dept.id]) : field.onChange(field.value?.filter((value) => value !== dept.id))
-                                      }}
-                                    />
-                                  </FormControl>
-                                  <FormLabel className="font-normal">{dept.name}</FormLabel>
-                                </FormItem>
-                              )}
-                            />
-                          ))}
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-
-                <FormField
-                    control={form.control}
-                    name="scopes"
-                    render={() => (
-                        <FormItem>
-                            <FormLabel className="font-semibold">Data Access Scope</FormLabel>
-                            <div className="flex flex-row items-center space-x-4 pt-2">
-                            {ALL_SCOPES.map((scope) => (
-                                <FormField
-                                key={scope.id}
-                                control={form.control}
-                                name="scopes"
-                                render={({ field }) => (
-                                    <FormItem key={scope.id} className="flex flex-row items-start space-x-3 space-y-0">
-                                        <FormControl>
-                                            <Checkbox
-                                                checked={field.value?.includes(scope.id)}
-                                                onCheckedChange={(checked) => {
-                                                return checked
-                                                    ? field.onChange([...field.value, scope.id])
-                                                    : field.onChange(field.value?.filter((value) => value !== scope.id))
-                                                }}
-                                            />
-                                        </FormControl>
-                                        <FormLabel className="font-normal">{scope.label}</FormLabel>
-                                    </FormItem>
-                                )}
-                                />
-                            ))}
-                            </div>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-              </div>
-            </ScrollArea>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField control={form.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Position Name</FormLabel><FormControl><Input placeholder="e.g., Field Coordinator" {...field} /></FormControl><FormMessage /></FormItem> )} />
             <DialogFooter className="pt-4">
               <DialogClose asChild><Button type="button" variant="secondary">Cancel</Button></DialogClose>
               <Button type="submit" disabled={form.formState.isSubmitting}>
@@ -692,10 +415,10 @@ function DeletePositionAlert({ position, children, onSuccess }: { position: Posi
 function PositionsTab() {
   const { userProfile } = useAuth();
   const [positions, setPositions] = useState<Position[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canManage = canManagePositions(userProfile);
+  const canWrite = canDo(userProfile, 'organization_positions', 'update');
+  const canDel = canDo(userProfile, 'organization_positions', 'delete');
 
   useEffect(() => {
     const posQuery = query(collection(db, 'positions'), orderBy('name', 'asc'));
@@ -707,77 +430,40 @@ function PositionsTab() {
       setLoading(false);
     });
     
-    const deptQuery = query(collection(db, 'departments'), orderBy('name', 'asc'));
-    const deptUnsub = onSnapshot(deptQuery, (snap) => {
-      setDepartments(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Department)));
-    });
-
     return () => {
       posUnsub();
-      deptUnsub();
     };
   }, []);
 
-  const departmentMap = useMemo(() => {
-    return departments.reduce((acc, dept) => {
-      acc[dept.id] = dept.name;
-      return acc;
-    }, {} as Record<string, string>);
-  }, [departments]);
-
-
   const positionColumns: ColumnDef<Position>[] = [
     { accessorKey: 'name', header: 'Position' },
-    { accessorKey: 'branch', header: 'Branch', cell: ({row}) => <Badge variant="outline" className="capitalize">{row.original.branch}</Badge> },
-    { 
-        accessorKey: 'departmentIds', 
-        header: 'Departments',
-        cell: ({ row }) => {
-            const deptIds = row.getValue('departmentIds') as string[] || [];
-            if (deptIds.length === 0) return <span className="text-muted-foreground text-xs">Any</span>
-            return (
-                <div className='flex flex-wrap gap-1'>
-                    {deptIds.map(id => <Badge key={id} variant="secondary">{departmentMap[id] || 'Unknown'}</Badge>)}
-                </div>
-            )
-        }
-    },
-    { 
-        accessorKey: 'scopes', 
-        header: 'Scopes',
-        cell: ({ row }) => {
-            const scopes = row.getValue('scopes') as DepartmentScope[] || [];
-            if (scopes.length === 0) return <span className="text-muted-foreground text-xs">Not set</span>
-            return (
-                <div className='flex flex-wrap gap-1'>
-                    {scopes.map(scope => <Badge key={scope} variant="secondary" className="capitalize">{scope}</Badge>)}
-                </div>
-            )
-        }
-    },
     {
       id: 'actions',
       cell: ({ row }) => {
         const position = row.original;
-        if (!canManage) return null;
+        if (!canWrite) return null;
         return (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <PositionFormDialog position={position}>
-                <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-              </PositionFormDialog>
-              <DropdownMenuSeparator />
-               <DeletePositionAlert position={position}>
-                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
-                    <Trash2 className="mr-2 h-4 w-4" />Delete
-                </DropdownMenuItem>
-              </DeletePositionAlert>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="text-right">
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <PositionFormDialog position={position}>
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
+                </PositionFormDialog>
+                {canDel && <>
+                    <DropdownMenuSeparator />
+                    <DeletePositionAlert position={position}>
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                            <Trash2 className="mr-2 h-4 w-4" />Delete
+                        </DropdownMenuItem>
+                    </DeletePositionAlert>
+                </>}
+                </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         );
       },
     },
@@ -797,7 +483,7 @@ function PositionsTab() {
   return (
     <div>
         <div className="flex justify-end py-4">
-            {canManage && (
+            {canWrite && (
             <PositionFormDialog>
                 <Button><PlusCircle className="mr-2 h-4 w-4" />Add Position</Button>
             </PositionFormDialog>
@@ -829,11 +515,47 @@ function OrgMembersTab() {
     )
   }
 
-  return <DataTable columns={orgMemberColumns} data={orgMembers} />;
+  return (
+    <div>
+        <Alert className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Permissions Management</AlertTitle>
+            <AlertDescription>
+                To manage user permissions, districts, and status, please go to the <a href="/admin/users" className="font-semibold underline">User Access Management</a> page (Platform Admins only).
+            </AlertDescription>
+        </Alert>
+        <DataTable columns={orgMemberColumns} data={orgMembers} />
+    </div>
+    )
+}
+
+function AccessDenied() {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive" /> Access Denied</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p>You do not have permission to view this page.</p>
+        </CardContent>
+      </Card>
+    );
 }
 
 // --- Main Page Component ---
 export default function OrganizationPage() {
+  const { userProfile } = useAuth();
+  
+  const canViewMembers = canViewPage(userProfile, 'organization_orgMembers');
+  const canViewDepts = canViewPage(userProfile, 'organization_departments');
+  const canViewPositions = canViewPage(userProfile, 'organization_positions');
+
+  if (!canViewMembers && !canViewDepts && !canViewPositions) {
+      return <AccessDenied />;
+  }
+
+  const defaultTab = canViewMembers ? "org-members" : canViewDepts ? "departments" : "positions";
+
   return (
     <Card>
       <CardHeader>
@@ -843,21 +565,15 @@ export default function OrganizationPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue="org-members" className="w-full">
+        <Tabs defaultValue={defaultTab} className="w-full">
           <TabsList>
-            <TabsTrigger value="org-members">Org Members</TabsTrigger>
-            <TabsTrigger value="departments">Departments</TabsTrigger>
-            <TabsTrigger value="positions">Positions</TabsTrigger>
+            {canViewMembers && <TabsTrigger value="org-members">Org Members</TabsTrigger>}
+            {canViewDepts && <TabsTrigger value="departments">Departments</TabsTrigger>}
+            {canViewPositions && <TabsTrigger value="positions">Positions</TabsTrigger>}
           </TabsList>
-          <TabsContent value="org-members">
-            <OrgMembersTab />
-          </TabsContent>
-          <TabsContent value="departments">
-            <DepartmentsTab />
-          </TabsContent>
-           <TabsContent value="positions">
-            <PositionsTab />
-          </TabsContent>
+          {canViewMembers && <TabsContent value="org-members"><OrgMembersTab /></TabsContent>}
+          {canViewDepts && <TabsContent value="departments"><DepartmentsTab /></TabsContent>}
+          {canViewPositions && <TabsContent value="positions"><PositionsTab /></TabsContent>}
         </Tabs>
       </CardContent>
     </Card>

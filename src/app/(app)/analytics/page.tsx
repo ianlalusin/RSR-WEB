@@ -6,7 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Users, Landmark, Briefcase, FolderKanban, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import type { AnalyticsData } from '@/lib/types';
-
+import { useAuth } from '@/components/providers/auth-provider';
+import { canViewPage } from '@/lib/access';
 
 const MOCK_DATA: Record<string, AnalyticsData> = {
     daily: {
@@ -108,7 +109,26 @@ function AnalyticsDashboard({ data, period }: { data: AnalyticsData, period: str
     )
 }
 
+function AccessDenied() {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive" /> Access Denied</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p>You do not have permission to view this page.</p>
+        </CardContent>
+      </Card>
+    );
+}
+
 export default function AnalyticsPage() {
+    const { userProfile } = useAuth();
+
+    if (!canViewPage(userProfile, 'analytics')) {
+        return <AccessDenied />;
+    }
+
     return (
         <div className="space-y-6">
             <Tabs defaultValue="weekly" className="w-full">

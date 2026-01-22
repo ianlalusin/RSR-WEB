@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import Link from 'next/link';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canDelete, canWriteBarangay } from '@/lib/permissions';
+import { canDo } from '@/lib/access';
 import DeleteBrgyAlert from './_components/delete-brgy-alert';
 import BrgyFormDialog from './_components/brgy-form-dialog';
 
@@ -95,8 +95,8 @@ export const columns: ColumnDef<Barangay>[] = [
     cell: ({ row }) => {
       const barangay = row.original;
       const { userProfile } = useAuth();
-      const canDel = canDelete(userProfile);
-      const canEdit = canWriteBarangay(userProfile);
+      const canDel = canDo(userProfile, 'barangays_list', 'delete');
+      const canEdit = canDo(userProfile, 'barangays_list', 'update');
 
       return (
         <DropdownMenu>

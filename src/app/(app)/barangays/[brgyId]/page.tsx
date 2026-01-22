@@ -6,7 +6,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Barangay } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canWriteBarangay, canWriteCaptain } from '@/lib/permissions';
+import { canViewPage, canDo, hasDistrictScope, isPlatformAdmin } from '@/lib/access';
 
 import {
     Card,
@@ -16,7 +16,7 @@ import {
     CardTitle,
   } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Users, Vote, HandCoins, Edit, User } from 'lucide-react';
+import { Users, Vote, HandCoins, Edit, User, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import BrgyFormDialog from '../_components/brgy-form-dialog';
@@ -53,6 +53,18 @@ function DetailPageSkeleton() {
     )
 }
 
+function AccessDenied() {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive" /> Access Denied</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p>You do not have permission to view this page or this specific barangay.</p>
+        </CardContent>
+      </Card>
+    );
+}
 
 export default function BarangayDetailPage() {
   const params = useParams();
@@ -61,12 +73,23 @@ export default function BarangayDetailPage() {
   const [loading, setLoading] = useState(true);
   const { userProfile } = useAuth();
   
+  const canView = canViewPage(userProfile, 'barangay_detail');
+
   useEffect(() => {
-    if (!brgyId) return;
+    if (!brgyId || !canView) {
+        setLoading(false);
+        return;
+    };
     
     const unsub = onSnapshot(doc(db, 'barangays', brgyId), (doc) => {
       if (doc.exists()) {
-        setBarangay({ id: doc.id, ...doc.data() } as Barangay);
+        const brgyData = { id: doc.id, ...doc.data() } as Barangay;
+        // Scope check
+        if (hasDistrictScope(userProfile, brgyData.districtId)) {
+            setBarangay(brgyData);
+        } else {
+            setBarangay(null); // Explicitly set to null if out of scope
+        }
       } else {
         notFound();
       }
@@ -78,19 +101,17 @@ export default function BarangayDetailPage() {
     });
 
     return () => unsub();
-  }, [brgyId]);
+  }, [brgyId, userProfile, canView]);
 
   if (loading) {
     return <DetailPageSkeleton />;
   }
 
-  if (!barangay) {
-    // This case is handled by notFound(), but it's good for type safety
-    return null;
+  if (!canView || !barangay) {
+    return <AccessDenied />;
   }
   
-  const canEditBrgy = canWriteBarangay(userProfile);
-  const canEditCaptain = canWriteCaptain(userProfile);
+  const canWrite = canDo(userProfile, 'barangay_detail', 'update');
 
   return (
     <div className="grid gap-6">
@@ -107,15 +128,15 @@ export default function BarangayDetailPage() {
                         </CardDescription>
                     </div>
                     <div className='flex gap-2'>
-                        {canEditBrgy && (
+                        {canWrite && (
                             <BrgyFormDialog barangay={barangay}>
                                 <Button variant="outline"><Edit className="mr-2"/>Edit Barangay</Button>
                             </BrgyFormDialog>
                         )}
-                        <CaptainProfileDialog brgyId={barangay.id} canEdit={canEditCaptain}>
+                        <CaptainProfileDialog brgyId={barangay.id} canEdit={canWrite}>
                             <Button variant="outline"><User className="mr-2"/>Captain Profile</Button>
                         </CaptainProfileDialog>
-                         <GenerateProfilesDialog barangay={barangay} />
+                         <GenerateProfilesDialog barangay={barangay} canGenerate={canWrite} />
                     </div>
                 </div>
             </CardHeader>

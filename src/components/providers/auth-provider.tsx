@@ -3,9 +3,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User, signInWithEmailAndPassword, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
 import { auth, db, googleProvider } from '@/lib/firebase';
-import type { UserProfile } from '@/lib/types';
-import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
+import type { UserProfile, AccessLevel, PageKey } from '@/lib/types';
+import { doc, onSnapshot, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { Landmark } from 'lucide-react';
+import { ALL_PAGE_KEYS } from '@/lib/access';
 
 interface AuthContextType {
   user: User | null;
@@ -34,6 +35,26 @@ const FullScreenLoader = () => (
   </div>
 );
 
+const defaultAccess = {
+  pages: ALL_PAGE_KEYS.reduce((acc, key) => {
+    if (key === 'dashboard' || key === 'profile') {
+      acc[key] = { level: 'readonly' };
+    } else {
+      acc[key] = { level: 'restricted' };
+    }
+    return acc;
+  }, {} as Record<PageKey, { level: AccessLevel }>),
+  districtIds: [],
+};
+
+const platformAdminAccess = {
+    pages: ALL_PAGE_KEYS.reduce((acc, key) => {
+        acc[key] = { level: 'readwrite' };
+        return acc;
+    }, {} as Record<PageKey, { level: AccessLevel }>),
+    districtIds: [],
+}
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -42,33 +63,47 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     let unsubProfile: () => void = () => {};
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      unsubProfile();
+      unsubProfile(); // Unsubscribe from previous user's profile listener
+      
       if (firebaseUser) {
         setUser(firebaseUser);
-        
         const userRef = doc(db, 'users', firebaseUser.uid);
+        
+        // Use a one-time getDoc for initial provisioning check
+        const docSnap = await getDoc(userRef);
+
+        if (!docSnap.exists()) {
+          // User is logging in for the first time, provision their profile.
+          const isSeedAdmin = firebaseUser.email === 'ianlalusin@gmail.com';
+          
+          const newUserProfile: Omit<UserProfile, 'roles' | 'permissions'> = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: isSeedAdmin ? 'Platform Admin' : firebaseUser.displayName || 'New User',
+            photoURL: firebaseUser.photoURL || null,
+            isActive: isSeedAdmin, // Only seed admin is active by default
+            departmentId: isSeedAdmin ? 'admin' : undefined,
+            positionId: isSeedAdmin ? 'platform_admin' : undefined,
+            access: isSeedAdmin ? platformAdminAccess : defaultAccess,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          };
+          await setDoc(userRef, newUserProfile);
+        } else {
+            const existingData = docSnap.data() as UserProfile;
+            // Fallback for existing users without the new `access` structure
+            if (!existingData.access) {
+                await setDoc(userRef, {
+                    access: defaultAccess,
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            }
+        }
+
+        // After provisioning/checking, set up the real-time listener
         unsubProfile = onSnapshot(userRef, (snapshot) => {
           if (snapshot.exists()) {
             setUserProfile(snapshot.data() as UserProfile);
-          } else {
-            // Auto-provision user on first login
-            const isSeedAdmin = firebaseUser.email === 'ianlalusin@gmail.com';
-            const newUserProfile: UserProfile = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              displayName: isSeedAdmin ? 'Ian' : firebaseUser.displayName,
-              photoURL: firebaseUser.photoURL || null,
-              roles: isSeedAdmin ? ['admin'] : [],
-              permissions: isSeedAdmin ? { "admin.all": true, "brgy.read": true, "brgy.write": true, "brgy.captain.write": true, "admin.users.manage": true } : {},
-              departments: [],
-              districtIds: [],
-              coordinatorBrgyIds: [],
-              isActive: isSeedAdmin,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            };
-            setDoc(userRef, newUserProfile);
-            setUserProfile(newUserProfile);
           }
           setLoading(false);
         });

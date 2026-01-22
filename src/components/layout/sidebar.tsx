@@ -6,18 +6,27 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Home, Landmark, Users, Shield, LogOut, HeartHandshake, Briefcase, LineChart } from 'lucide-react';
 import { useAuth } from '../providers/auth-provider';
 import { cn } from '@/lib/utils';
-import { hasPerm } from '@/lib/permissions';
+import { canViewPage, isPlatformAdmin } from '@/lib/access';
+import { PageKey } from '@/lib/types';
 
-const navItems = [
-  { href: '/', icon: Home, label: 'Dashboard' },
-  { href: '/barangays', icon: Landmark, label: 'Barangays' },
-  { href: '/coordinators', icon: Briefcase, label: 'Organization' },
-  { href: '/assistance', icon: HeartHandshake, label: 'Projects' },
-  { href: '/analytics', icon: LineChart, label: 'Analytics' },
+
+interface NavItem {
+    href: string;
+    icon: React.ElementType;
+    label: string;
+    pageKey: PageKey;
+}
+
+const navItems: NavItem[] = [
+  { href: '/', icon: Home, label: 'Dashboard', pageKey: 'dashboard' },
+  { href: '/barangays', icon: Landmark, label: 'Barangays', pageKey: 'barangays_list' },
+  { href: '/coordinators', icon: Briefcase, label: 'Organization', pageKey: 'organization_orgMembers' },
+  { href: '/assistance', icon: HeartHandshake, label: 'Projects', pageKey: 'assistance_projects' },
+  { href: '/analytics', icon: LineChart, label: 'Analytics', pageKey: 'analytics'},
 ];
 
 const adminNavItems = [
-  { href: '/admin/users', icon: Shield, label: 'User Access', permission: 'admin.users.manage' },
+  { href: '/admin/users', icon: Shield, label: 'User Access' },
 ];
 
 export function Sidebar() {
@@ -36,6 +45,7 @@ export function Sidebar() {
             <span className="sr-only">RSR Web</span>
           </Link>
           {navItems.map((item) => (
+            canViewPage(userProfile, item.pageKey) && (
             <Tooltip key={item.href}>
               <TooltipTrigger asChild>
                 <Link
@@ -51,9 +61,9 @@ export function Sidebar() {
               </TooltipTrigger>
               <TooltipContent side="right">{item.label}</TooltipContent>
             </Tooltip>
+           )
           ))}
-          {adminNavItems.map((item) => (
-            hasPerm(userProfile, item.permission) && (
+          {isPlatformAdmin(userProfile) && adminNavItems.map((item) => (
              <Tooltip key={item.href}>
              <TooltipTrigger asChild>
                <Link
@@ -69,7 +79,7 @@ export function Sidebar() {
              </TooltipTrigger>
              <TooltipContent side="right">{item.label}</TooltipContent>
            </Tooltip>
-          )))}
+          ))}
         </nav>
         <nav className="mt-auto flex flex-col items-center gap-4 px-2 py-4">
           <Tooltip>

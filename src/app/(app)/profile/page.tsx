@@ -10,6 +10,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { updatePassword } from 'firebase/auth';
+import { canViewPage } from '@/lib/access';
+import { AlertTriangle } from 'lucide-react';
 
 const formSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters.'),
@@ -18,6 +20,20 @@ const formSchema = z.object({
   message: "Passwords don't match",
   path: ["confirmPassword"],
 });
+
+
+function AccessDenied() {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive" /> Access Denied</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p>You do not have permission to view this page.</p>
+        </CardContent>
+      </Card>
+    );
+}
 
 export default function ProfilePage() {
     const { user, userProfile } = useAuth();
@@ -29,6 +45,12 @@ export default function ProfilePage() {
             confirmPassword: '',
         },
     });
+    
+    if (!canViewPage(userProfile, 'profile')) {
+        return <AccessDenied />;
+    }
+
+    if (!user || !userProfile) return null; // Or a loading state
 
     const onSubmit = async (values: z.infer<typeof formSchema>) => {
         if (!user) {
@@ -44,7 +66,6 @@ export default function ProfilePage() {
         }
     };
 
-    if (!user || !userProfile) return null; // Or a loading state
 
     return (
         <div className="grid gap-6">
@@ -64,8 +85,8 @@ export default function ProfilePage() {
                             <p className="text-muted-foreground">{userProfile.displayName || 'Not set'}</p>
                         </div>
                          <div>
-                            <h3 className="font-medium">Roles</h3>
-                            <p className="text-muted-foreground capitalize">{userProfile.roles.join(', ')}</p>
+                            <h3 className="font-medium">Position</h3>
+                            <p className="text-muted-foreground capitalize">{userProfile.positionId?.replace(/_/g, ' ') || 'Not assigned'}</p>
                         </div>
                     </div>
                 </CardContent>

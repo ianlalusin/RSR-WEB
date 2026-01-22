@@ -11,6 +11,7 @@ import {
   ColumnFiltersState,
   SortingState,
   getSortedRowModel,
+  Row,
 } from '@tanstack/react-table';
 
 import {
@@ -23,15 +24,21 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { UserProfile } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
+  onUserSelect: (user: TData) => void;
+  selectedUserId?: string | null;
 }
 
-export function DataTable<TData, TValue>({
+export function DataTable<TData extends UserProfile, TValue>({
   columns,
   data,
+  onUserSelect,
+  selectedUserId,
 }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = useState<SortingState>([])
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -47,7 +54,7 @@ export function DataTable<TData, TValue>({
     getFilteredRowModel: getFilteredRowModel(),
     initialState: {
         pagination: {
-            pageSize: 20,
+            pageSize: 50,
         }
     },
     state: {
@@ -60,10 +67,12 @@ export function DataTable<TData, TValue>({
     <div>
         <div className="flex items-center py-4">
             <Input
-            placeholder="Filter by email..."
-            value={(table.getColumn("email")?.getFilterValue() as string) ?? ""}
-            onChange={(event) =>
-                table.getColumn("email")?.setFilterValue(event.target.value)
+            placeholder="Filter by name or email..."
+            value={(table.getColumn("displayName")?.getFilterValue() as string) ?? ""}
+            onChange={(event) => {
+                table.getColumn("displayName")?.setFilterValue(event.target.value);
+                table.getColumn("email")?.setFilterValue(event.target.value);
+            }
             }
             className="max-w-sm"
             />
@@ -94,6 +103,11 @@ export function DataTable<TData, TValue>({
                 <TableRow
                     key={row.id}
                     data-state={row.getIsSelected() && 'selected'}
+                    onClick={() => onUserSelect(row.original)}
+                    className={cn(
+                        'cursor-pointer',
+                        row.original.uid === selectedUserId && 'bg-muted hover:bg-muted'
+                    )}
                 >
                     {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>

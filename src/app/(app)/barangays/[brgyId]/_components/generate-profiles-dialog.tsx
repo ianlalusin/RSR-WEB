@@ -19,19 +19,24 @@ import { Sparkles, AlertTriangle } from 'lucide-react';
 import { generateBarangayProfiles } from '@/app/actions';
 import type { Barangay, GeneratedProfile } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/components/providers/auth-provider';
 
 interface Props {
   barangay: Barangay;
+  canGenerate: boolean;
 }
 
-export default function GenerateProfilesDialog({ barangay }: Props) {
+export default function GenerateProfilesDialog({ barangay, canGenerate }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<GeneratedProfile[] | null>(null);
   const { toast } = useToast();
+  const { userProfile } = useAuth();
 
   const handleGeneration = async () => {
+    if (!userProfile) return;
+
     setIsLoading(true);
     setError(null);
     setProfiles(null);
@@ -44,9 +49,9 @@ export default function GenerateProfilesDialog({ barangay }: Props) {
       favoredVotePct: barangay.favoredVotePct,
     };
 
-    const result = await generateBarangayProfiles(input);
+    const result = await generateBarangayProfiles(input, { uid: userProfile.uid, email: userProfile.email });
 
-    if (result.success) {
+    if (result.success && result.data) {
       setProfiles(result.data);
       toast({
         title: 'Profiles Generated',
@@ -67,7 +72,7 @@ export default function GenerateProfilesDialog({ barangay }: Props) {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" disabled={!canGenerate}>
           <Sparkles className="mr-2 h-4 w-4" />
           Generate Resident Profiles
         </Button>

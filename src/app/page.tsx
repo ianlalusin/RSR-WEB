@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
 import AppLayout from '@/components/layout/app-layout';
@@ -16,10 +16,11 @@ import {
   Landmark,
   ClipboardList,
   DollarSign,
+  AlertTriangle,
 } from 'lucide-react';
 import { Bar, BarChart as RechartsBarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
-
+import { canViewPage } from '@/lib/access';
 
 const districtData = [
     { name: 'North', budget: 4000, expenses: 2400 },
@@ -35,9 +36,15 @@ const recentActivity = [
     { type: 'Budget', description: 'Expense approved for office supplies', time: '3h ago' },
     { type: 'Visit', description: 'Cong. visit to Brgy. 24', time: 'yesterday' },
     { type: 'User', description: 'New coordinator added: M. Reyes', time: 'yesterday' },
-]
+];
 
 function Dashboard() {
+  const { userProfile } = useAuth();
+  
+  if (!canViewPage(userProfile, 'dashboard')) {
+      return <AccessDenied />;
+  }
+
   return (
     <div className="grid gap-6">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -133,6 +140,19 @@ function Dashboard() {
   );
 }
 
+function AccessDenied() {
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive" /> Access Denied</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p>You do not have permission to view this page. Please contact a Platform Administrator if you believe this is an error.</p>
+            </CardContent>
+        </Card>
+    );
+}
+
 
 function FullScreenLoader() {
   return (
@@ -147,22 +167,20 @@ function FullScreenLoader() {
 
 export default function Home() {
   const router = useRouter();
-  const pathname = usePathname();
-
   const { user, userProfile, loading } = useAuth();
 
   useEffect(() => {
     if (loading) return;
 
     if (!user) {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      router.replace(`/login`);
       return;
     }
     if (!userProfile?.isActive) {
       router.replace('/login?reason=inactive');
       return;
     }
-  }, [loading, user, userProfile, router, pathname]);
+  }, [loading, user, userProfile, router]);
 
   if (loading || !user || !userProfile) {
     return <FullScreenLoader />;
