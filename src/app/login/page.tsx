@@ -9,8 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Landmark } from 'lucide-react';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { createUserWithEmailAndPassword, UserCredential } from 'firebase/auth';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { platformAdminAccess } from '@/lib/access';
+import { UserProfile } from '@/lib/types';
+
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -55,40 +59,83 @@ export default function LoginPage() {
 
   const handleSeedAdmin = async () => {
     setIsLoading(true);
+    const adminEmail = 'ianlalusin@gmail.com';
+    const adminPassword = '123456';
+
     try {
-      await createUserWithEmailAndPassword(auth, 'ianlalusin@gmail.com', '123456');
-      router.push('/');
-      toast({
-        title: 'Admin User Seeded',
-        description: 'Logged in as admin.',
-      });
-    } catch (error: any) {
-      if (error.code === 'auth/email-already-in-use') {
+        let userCredential: UserCredential;
         try {
-          await login('ianlalusin@gmail.com', '123456');
-          router.push('/');
-          toast({
-            title: 'Admin Login',
-            description: 'Logged in as existing admin.',
-          });
-        } catch (loginError: any) {
-          toast({
-            variant: 'destructive',
-            title: 'Admin Login Failed',
-            description: loginError.message,
-          });
+            // Attempt to create the user
+            userCredential = await createUserWithEmailAndPassword(auth, adminEmail, adminPassword);
+            const user = userCredential.user;
+            
+            // Explicitly create the user's profile document with admin rights
+            const userRef = doc(db, 'users', user.uid);
+            const adminProfile: Omit<UserProfile, 'roles' | 'permissions'> = {
+                uid: user.uid,
+                email: user.email,
+                displayName: 'Platform Admin',
+                photoURL: null,
+                isActive: true,
+                departmentId: 'admin',
+                positionId: 'platformAdmin',
+                access: platformAdminAccess,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+            };
+            await setDoc(userRef, adminProfile);
+
+            toast({
+                title: 'Admin User Seeded',
+                description: 'Logged in as new admin.',
+            });
+
+        } catch (error: any) {
+            if (error.code === 'auth/email-already-in-use') {
+                // If user exists, just log them in
+                userCredential = await login(adminEmail, adminPassword);
+                 const userRef = doc(db, 'users', userCredential.user.uid);
+                 const docSnap = await getDoc(userRef);
+                 if(!docSnap.exists()){
+                     const adminProfile: Omit<UserProfile, 'roles' | 'permissions'> = {
+                        uid: userCredential.user.uid,
+                        email: userCredential.user.email,
+                        displayName: 'Platform Admin',
+                        photoURL: null,
+                        isActive: true,
+                        departmentId: 'admin',
+                        positionId: 'platformAdmin',
+                        access: platformAdminAccess,
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                    };
+                    await setDoc(userRef, adminProfile);
+                 }
+
+
+                toast({
+                    title: 'Admin Login',
+                    description: 'Logged in as existing admin.',
+                });
+            } else {
+                // For other errors during creation (weak password, etc.)
+                throw error;
+            }
         }
-      } else {
+        
+        router.push('/');
+
+    } catch (error: any) {
         toast({
-          variant: 'destructive',
-          title: 'Admin Seed Failed',
-          description: error.message,
+            variant: 'destructive',
+            title: 'Operation Failed',
+            description: error.message || 'An unknown error occurred.',
         });
-      }
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  };
+};
+
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-muted/40 p-4">

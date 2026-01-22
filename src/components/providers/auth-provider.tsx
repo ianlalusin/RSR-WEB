@@ -6,7 +6,7 @@ import { auth, db, googleProvider } from '@/lib/firebase';
 import type { UserProfile, AccessLevel, PageKey } from '@/lib/types';
 import { doc, onSnapshot, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { Landmark } from 'lucide-react';
-import { ALL_PAGE_KEYS } from '@/lib/access';
+import { ALL_PAGE_KEYS, defaultAccess, platformAdminAccess } from '@/lib/access';
 
 interface AuthContextType {
   user: User | null;
@@ -34,26 +34,6 @@ const FullScreenLoader = () => (
     </div>
   </div>
 );
-
-const defaultAccess = {
-  pages: ALL_PAGE_KEYS.reduce((acc, key) => {
-    if (key === 'dashboard' || key === 'profile') {
-      acc[key] = { level: 'readonly' };
-    } else {
-      acc[key] = { level: 'restricted' };
-    }
-    return acc;
-  }, {} as Record<PageKey, { level: AccessLevel }>),
-  districtIds: [],
-};
-
-const platformAdminAccess = {
-    pages: ALL_PAGE_KEYS.reduce((acc, key) => {
-        acc[key] = { level: 'full' };
-        return acc;
-    }, {} as Record<PageKey, { level: AccessLevel }>),
-    districtIds: [],
-}
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);

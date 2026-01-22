@@ -1,4 +1,6 @@
-import type { UserProfile, PageKey } from './types';
+'use client';
+
+import type { UserProfile, PageKey, AccessLevel } from './types';
 
 export const ALL_PAGE_KEYS: PageKey[] = [
     'dashboard',
@@ -13,6 +15,26 @@ export const ALL_PAGE_KEYS: PageKey[] = [
     'admin_users',
 ];
 
+export const defaultAccess = {
+  pages: ALL_PAGE_KEYS.reduce((acc, key) => {
+    if (key === 'dashboard' || key === 'profile') {
+      acc[key] = { level: 'readonly' };
+    } else {
+      acc[key] = { level: 'restricted' };
+    }
+    return acc;
+  }, {} as Record<PageKey, { level: AccessLevel }>),
+  districtIds: [],
+};
+
+export const platformAdminAccess = {
+    pages: ALL_PAGE_KEYS.reduce((acc, key) => {
+        acc[key] = { level: 'full' };
+        return acc;
+    }, {} as Record<PageKey, { level: AccessLevel }>),
+    districtIds: [],
+}
+
 /**
  * Checks if a user is a Platform Admin.
  * This is a hard-coded check based on positionId.
@@ -20,7 +42,7 @@ export const ALL_PAGE_KEYS: PageKey[] = [
  * @returns boolean
  */
 export function isPlatformAdmin(u: UserProfile | null): boolean {
-    return !!u && u.isActive && u.positionId === 'platformAdmin';
+  return !!u && u.isActive && u.positionId === "platformAdmin";
 }
 
 /**
@@ -40,17 +62,17 @@ export function isOfficeAdmin(u: UserProfile | null): boolean {
  * @returns boolean
  */
 export function canViewPage(u: UserProfile | null, page: PageKey): boolean {
-    if (!u?.isActive) return false;
+  if (!u?.isActive) return false;
 
-    // ✅ Full bypass for platform admin
-    if (isPlatformAdmin(u)) return true;
+  // ✅ Full bypass for platform admin
+  if (isPlatformAdmin(u)) return true;
 
-    // safe defaults for users with no access configured yet
-    if (!u.access?.pages) {
-        return page === 'dashboard' || page === 'profile';
-    }
+  // safe defaults for users with no access configured yet
+  if (!u.access?.pages) {
+    return page === "dashboard" || page === "profile";
+  }
 
-    return u.access.pages[page]?.level !== 'restricted';
+  return u.access.pages[page]?.level !== "restricted";
 }
 
 
