@@ -59,7 +59,7 @@ const formSchema = z.object({
   positionId: z.string().optional(),
   access: z.object({
     districtIds: z.array(z.string()).default([]),
-    pages: z.record(z.string(), z.object({ level: z.string() })),
+    pages: z.record(z.nativeEnum(AccessLevel)),
   }),
 });
 
@@ -111,9 +111,9 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
       access: {
         districtIds: user.access?.districtIds || [],
         pages: (ALL_PAGE_KEYS.reduce((acc, key) => {
-          acc[key] = { level: user.access?.pages?.[key]?.level || 'restricted' };
+          acc[key] = user.access?.pages?.[key]?.level || 'restricted';
           return acc;
-        }, {} as Record<PageKey, { level: AccessLevel }>)),
+        }, {} as Record<PageKey, AccessLevel>)),
       },
     },
   });
@@ -133,9 +133,9 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
             access: {
                 districtIds: user.access?.districtIds || [],
                 pages: (ALL_PAGE_KEYS.reduce((acc, key) => {
-                acc[key] = { level: user.access?.pages?.[key]?.level || 'restricted' };
-                return acc;
-                }, {} as Record<PageKey, { level: AccessLevel }>)),
+                    acc[key] = user.access?.pages?.[key]?.level || 'restricted';
+                    return acc;
+                }, {} as Record<PageKey, AccessLevel>)),
             },
           })
       }
@@ -153,13 +153,19 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
       positionId: user.positionId,
       access: user.access
     };
+
+    const pagesPayload = Object.entries(values.access.pages).reduce((acc, [key, level]) => {
+        acc[key as PageKey] = { level };
+        return acc;
+    }, {} as Record<PageKey, {level: AccessLevel}>);
+
     const payload: Partial<UserProfile> = {
         isActive: values.isActive,
         departmentId: values.departmentId,
         positionId: values.positionId,
         access: {
             districtIds: values.access.districtIds,
-            pages: values.access.pages as Record<PageKey, {level: AccessLevel}>
+            pages: pagesPayload,
         }
     }
     
@@ -214,167 +220,167 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
             <Separator className="mb-6" />
             <h3 className="text-xl font-semibold mb-4">{user.displayName}</h3>
             {isEditMode ? (
-                <ScrollArea className="max-h-[60vh]">
-                  <div className="pr-4">
-                    <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)}>
+                    <ScrollArea className="max-h-[60vh] pr-4">
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <FormField
+                                control={form.control}
+                                name="isActive"
+                                render={({ field }) => (
+                                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm col-span-1">
+                                    <div className="space-y-0.5">
+                                        <FormLabel>Active Status</FormLabel>
+                                    </div>
+                                    <FormControl>
+                                        <Switch
+                                        checked={field.value}
+                                        onCheckedChange={field.onChange}
+                                        />
+                                    </FormControl>
+                                    </FormItem>
+                                )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="departmentId"
+                                    render={({ field }) => (
+                                    <FormItem className="col-span-1">
+                                        <FormLabel>Department</FormLabel>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger><SelectValue placeholder="Select a department" /></SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                                        </SelectContent>
+                                        </Select>
+                                    </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="positionId"
+                                    render={({ field }) => (
+                                    <FormItem className="col-span-1">
+                                        <FormLabel>Position</FormLabel>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger><SelectValue placeholder="Select a position" /></SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {positions.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                                        </SelectContent>
+                                        </Select>
+                                    </FormItem>
+                                    )}
+                                />
+                            </div>
+
+                            <Separator />
+                            
                             <FormField
                             control={form.control}
-                            name="isActive"
-                            render={({ field }) => (
-                                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm col-span-1">
-                                <div className="space-y-0.5">
-                                    <FormLabel>Active Status</FormLabel>
-                                </div>
-                                <FormControl>
-                                    <Switch
-                                    checked={field.value}
-                                    onCheckedChange={field.onChange}
+                            name="access.districtIds"
+                            render={() => (
+                                <FormItem>
+                                <FormLabel className="text-base font-semibold">District Scope</FormLabel>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-2">
+                                    {districts.map((d) => (
+                                    <FormField
+                                        key={d.id}
+                                        control={form.control}
+                                        name="access.districtIds"
+                                        render={({ field }) => {
+                                        return (
+                                            <FormItem
+                                            key={d.id}
+                                            className="flex flex-row items-start space-x-3 space-y-0"
+                                            >
+                                            <FormControl>
+                                                <Checkbox
+                                                checked={field.value?.includes(d.id)}
+                                                onCheckedChange={(checked) => {
+                                                    return checked
+                                                    ? field.onChange([...field.value, d.id])
+                                                    : field.onChange(
+                                                        field.value?.filter(
+                                                            (value) => value !== d.id
+                                                        )
+                                                        );
+                                                }}
+                                                />
+                                            </FormControl>
+                                            <FormLabel className="font-normal">
+                                                {d.name}
+                                            </FormLabel>
+                                            </FormItem>
+                                        );
+                                        }}
                                     />
-                                </FormControl>
+                                    ))}
+                                </div>
+                                <FormMessage />
                                 </FormItem>
                             )}
                             />
-                            <FormField
-                                control={form.control}
-                                name="departmentId"
-                                render={({ field }) => (
-                                <FormItem className="col-span-1">
-                                    <FormLabel>Department</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl>
-                                        <SelectTrigger><SelectValue placeholder="Select a department" /></SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                                    </SelectContent>
-                                    </Select>
-                                </FormItem>
-                                )}
-                            />
-                            <FormField
-                                control={form.control}
-                                name="positionId"
-                                render={({ field }) => (
-                                <FormItem className="col-span-1">
-                                    <FormLabel>Position</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl>
-                                        <SelectTrigger><SelectValue placeholder="Select a position" /></SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        {positions.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                                    </SelectContent>
-                                    </Select>
-                                </FormItem>
-                                )}
-                            />
-                        </div>
 
-                        <Separator />
-                        
-                        <FormField
-                        control={form.control}
-                        name="access.districtIds"
-                        render={() => (
-                            <FormItem>
-                            <FormLabel className="text-base font-semibold">District Scope</FormLabel>
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-2">
-                                {districts.map((d) => (
-                                <FormField
-                                    key={d.id}
-                                    control={form.control}
-                                    name="access.districtIds"
-                                    render={({ field }) => {
-                                    return (
-                                        <FormItem
-                                        key={d.id}
-                                        className="flex flex-row items-start space-x-3 space-y-0"
-                                        >
-                                        <FormControl>
-                                            <Checkbox
-                                            checked={field.value?.includes(d.id)}
-                                            onCheckedChange={(checked) => {
-                                                return checked
-                                                ? field.onChange([...field.value, d.id])
-                                                : field.onChange(
-                                                    field.value?.filter(
-                                                        (value) => value !== d.id
-                                                    )
-                                                    );
-                                            }}
-                                            />
-                                        </FormControl>
-                                        <FormLabel className="font-normal">
-                                            {d.name}
-                                        </FormLabel>
-                                        </FormItem>
-                                    );
-                                    }}
-                                />
-                                ))}
-                            </div>
-                            <FormMessage />
-                            </FormItem>
-                        )}
-                        />
+                            <Separator />
 
-                        <Separator />
-
-                        <div>
-                            <FormLabel className="text-base font-semibold">Page Permissions</FormLabel>
-                            <Table className="mt-2">
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Page</TableHead>
-                                        <TableHead className="text-right">Access Level</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {ALL_PAGE_KEYS.map((key) => (
-                                        <TableRow key={key}>
-                                            <TableCell>{PAGE_LABELS[key]}</TableCell>
-                                            <TableCell>
-                                                <FormField
-                                                    control={form.control}
-                                                    name={`access.pages.${key}.level`}
-                                                    render={({ field }) => (
-                                                        <RadioGroup
-                                                            onValueChange={field.onChange}
-                                                            defaultValue={field.value}
-                                                            className="flex justify-end space-x-4"
-                                                        >
-                                                            {ACCESS_LEVELS.map(level => (
-                                                                <FormItem key={level} className="flex items-center space-x-2 space-y-0">
-                                                                    <FormControl>
-                                                                        <RadioGroupItem value={level} id={`${user.uid}-${key}-${level}`} />
-                                                                    </FormControl>
-                                                                    <FormLabel htmlFor={`${user.uid}-${key}-${level}`} className="font-normal capitalize">{level}</FormLabel>
-                                                                </FormItem>
-                                                            ))}
-                                                        </RadioGroup>
-                                                    )}
-                                                />
-                                            </TableCell>
+                            <div>
+                                <FormLabel className="text-base font-semibold">Page Permissions</FormLabel>
+                                <Table className="mt-2">
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Page</TableHead>
+                                            <TableHead className="text-right">Access Level</TableHead>
                                         </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {ALL_PAGE_KEYS.map((key) => (
+                                            <TableRow key={key}>
+                                                <TableCell>{PAGE_LABELS[key]}</TableCell>
+                                                <TableCell>
+                                                    <FormField
+                                                        control={form.control}
+                                                        name={`access.pages.${key}`}
+                                                        render={({ field }) => (
+                                                            <RadioGroup
+                                                                onValueChange={field.onChange}
+                                                                defaultValue={field.value}
+                                                                className="flex justify-end space-x-4"
+                                                            >
+                                                                {ACCESS_LEVELS.map(level => (
+                                                                    <FormItem key={level} className="flex items-center space-x-2 space-y-0">
+                                                                        <FormControl>
+                                                                            <RadioGroupItem value={level} id={`${user.uid}-${key}-${level}`} />
+                                                                        </FormControl>
+                                                                        <FormLabel htmlFor={`${user.uid}-${key}-${level}`} className="font-normal capitalize">{level}</FormLabel>
+                                                                    </FormItem>
+                                                                ))}
+                                                            </RadioGroup>
+                                                        )}
+                                                    />
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
                         </div>
-                        <div className="flex justify-end gap-2 pt-4">
-                            <Button type="button" variant="ghost" onClick={() => setIsEditMode(false)}>Cancel</Button>
-                            <Button type="submit" disabled={form.formState.isSubmitting}>
-                                {form.formState.isSubmitting && (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                )}
-                                Save Changes
-                            </Button>
-                        </div>
-                    </form>
-                    </Form>
+                    </ScrollArea>
+                    <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+                        <Button type="button" variant="ghost" onClick={() => setIsEditMode(false)}>Cancel</Button>
+                        <Button type="submit" disabled={form.formState.isSubmitting}>
+                            {form.formState.isSubmitting && (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            )}
+                            Save Changes
+                        </Button>
                     </div>
-                </ScrollArea>
+                </form>
+                </Form>
             ) : (
                 <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
