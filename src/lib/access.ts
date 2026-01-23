@@ -55,7 +55,6 @@ export function canViewPage(
   page: PageKey,
   opts?: { isPlatformAdminClaim?: boolean }
 ): boolean {
-  // If claim says platform admin, allow everything (even if profile doc missing)
   if (opts?.isPlatformAdminClaim === true) return true;
 
   if (!u?.isActive) return false;
