@@ -165,6 +165,34 @@ export async function updateUserAccess(uid: string, data: Partial<UserProfile>, 
     }
 }
 
+export async function updateSelfProfile(uid: string, data: { displayName: string, photoURL: string }, actor: Actor) {
+    if (actor.uid !== uid) {
+        return { success: false, error: 'Permission denied. You can only update your own profile.' };
+    }
+    
+    try {
+        const userDoc = doc(db, 'users', uid);
+        await updateDoc(userDoc, {
+            displayName: data.displayName,
+            photoURL: data.photoURL,
+            updatedAt: serverTimestamp(),
+        });
+        
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'update',
+            entityType: 'user',
+            entityId: uid,
+            details: { self_profile_update: data },
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
 export async function updateCaptainProfile(brgyId: string, isCreating: boolean, data: Partial<Omit<CaptainProfile, 'createdAt'>>, actor: Actor) {
     try {
         const batch = writeBatch(db);
