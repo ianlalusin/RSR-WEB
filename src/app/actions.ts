@@ -205,58 +205,6 @@ export async function updateCaptainProfile(brgyId: string, isCreating: boolean, 
     }
 }
 
-export async function syncDistricts(actor: Actor) {
-    try {
-        const batch = writeBatch(db);
-        const brgyCollectionRef = collection(db, 'barangays');
-        const brgySnapshot = await getDocs(brgyCollectionRef);
-
-        const districtMap: { [key: string]: string } = {
-            "North": "North District",
-            "South": "South District",
-            "East": "East District",
-            "West": "West District",
-            "Urban": "Urban District",
-        };
-        const districtKeys = Object.keys(districtMap);
-        let updatedCount = 0;
-
-        brgySnapshot.forEach(docSnap => {
-            const brgy = docSnap.data() as Omit<Barangay, 'id'>;
-            const currentDistrictName = brgy.districtName;
-            
-            const matchingKey = districtKeys.find(key => key.toLowerCase() === currentDistrictName.toLowerCase().trim());
-
-            if (matchingKey) {
-                const newDistrictName = districtMap[matchingKey];
-                const newDistrictId = newDistrictName.toLowerCase().replace(/\s/g, '-');
-                
-                if(brgy.districtName !== newDistrictName || brgy.districtId !== newDistrictId) {
-                    batch.update(docSnap.ref, { districtName: newDistrictName, districtId: newDistrictId });
-                    updatedCount++;
-                }
-            }
-        });
-
-        if (updatedCount > 0) {
-            await logAudit({
-                actorUid: actor.uid,
-                actorEmail: actor.email,
-                action: 'bulk_update',
-                entityType: 'system',
-                entityId: 'barangays_collection',
-                details: { operation: 'syncDistricts', updatedCount },
-            });
-            await batch.commit();
-        }
-
-        return { success: true, updatedCount };
-    } catch (error: any) {
-        return { success: false, error: error.message };
-    }
-}
-
-
 type AddProjectData = Omit<ProjectRecord, 'id' | 'createdAt' | 'updatedAt' | 'createdByUid'>;
 
 export async function addProjectRecord(data: AddProjectData, actor: Actor) {

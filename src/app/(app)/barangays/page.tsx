@@ -27,7 +27,6 @@ import BrgyFormDialog from './_components/brgy-form-dialog';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, AlertTriangle } from 'lucide-react';
 import UploadBrgyDialog from './_components/upload-brgy-dialog';
-import SyncDistrictsButton from './_components/sync-districts-button';
 
 function AccessDenied() {
     return (
@@ -127,7 +126,6 @@ export default function BarangaysPage() {
           </div>
           {canWrite && (
             <div className="flex items-center gap-2">
-              {isAdmin && <SyncDistrictsButton />}
               <UploadBrgyDialog />
               <BrgyFormDialog>
                   <Button>
