@@ -214,7 +214,8 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
             <Separator className="mb-6" />
             <h3 className="text-xl font-semibold mb-4">{user.displayName}</h3>
             {isEditMode ? (
-                <ScrollArea className="max-h-[60vh] p-1">
+                <ScrollArea className="max-h-[60vh]">
+                  <div className="pr-4">
                     <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -372,6 +373,7 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
                         </div>
                     </form>
                     </Form>
+                    </div>
                 </ScrollArea>
             ) : (
                 <div className="space-y-6">
