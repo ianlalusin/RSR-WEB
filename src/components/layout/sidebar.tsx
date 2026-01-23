@@ -3,18 +3,17 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Home, Landmark, Users, Shield, LogOut, HeartHandshake, Briefcase, LineChart } from 'lucide-react';
+import { Home, Landmark, Shield, LogOut, HeartHandshake, Briefcase, LineChart } from 'lucide-react';
 import { useAuth } from '../providers/auth-provider';
 import { cn } from '@/lib/utils';
 import { canViewPage, isPlatformAdmin } from '@/lib/access';
 import { PageKey } from '@/lib/types';
 
-
 interface NavItem {
-    href: string;
-    icon: React.ElementType;
-    label: string;
-    pageKey: PageKey;
+  href: string;
+  icon: React.ElementType;
+  label: string;
+  pageKey: PageKey;
 }
 
 const navItems: NavItem[] = [
@@ -22,7 +21,7 @@ const navItems: NavItem[] = [
   { href: '/barangays', icon: Landmark, label: 'Barangays', pageKey: 'barangays_list' },
   { href: '/coordinators', icon: Briefcase, label: 'Organization', pageKey: 'organization_orgMembers' },
   { href: '/assistance', icon: HeartHandshake, label: 'Projects', pageKey: 'assistance_projects' },
-  { href: '/analytics', icon: LineChart, label: 'Analytics', pageKey: 'analytics'},
+  { href: '/analytics', icon: LineChart, label: 'Analytics', pageKey: 'analytics' },
 ];
 
 const adminNavItems = [
@@ -31,7 +30,10 @@ const adminNavItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { logout, userProfile } = useAuth();
+  const { logout, userProfile, isPlatformAdminClaim } = useAuth();
+
+  const authOpts = { isPlatformAdminClaim };
+  const isAdmin = isPlatformAdmin(userProfile, isPlatformAdminClaim);
 
   return (
     <aside className="fixed inset-y-0 left-0 z-10 hidden w-14 flex-col border-r bg-background sm:flex">
@@ -44,43 +46,49 @@ export function Sidebar() {
             <Landmark className="h-4 w-4 transition-all group-hover:scale-110" />
             <span className="sr-only">RSR Web</span>
           </Link>
+
           {navItems.map((item) => (
-            canViewPage(userProfile, item.pageKey) && (
-            <Tooltip key={item.href}>
-              <TooltipTrigger asChild>
-                <Link
-                  href={item.href}
-                  className={cn(
-                    'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground md:h-8 md:w-8',
-                    (pathname.startsWith(item.href) && item.href !== '/') || pathname === item.href ? 'bg-accent text-accent-foreground' : ''
-                  )}
-                >
-                  <item.icon className="h-5 w-5" />
-                  <span className="sr-only">{item.label}</span>
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right">{item.label}</TooltipContent>
-            </Tooltip>
-           )
+            canViewPage(userProfile, item.pageKey, authOpts) && (
+              <Tooltip key={item.href}>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground md:h-8 md:w-8',
+                      (pathname.startsWith(item.href) && item.href !== '/') || pathname === item.href
+                        ? 'bg-accent text-accent-foreground'
+                        : ''
+                    )}
+                  >
+                    <item.icon className="h-5 w-5" />
+                    <span className="sr-only">{item.label}</span>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            )
           ))}
-          {isPlatformAdmin(userProfile) && adminNavItems.map((item) => (
-             <Tooltip key={item.href}>
-             <TooltipTrigger asChild>
-               <Link
-                 href={item.href}
-                 className={cn(
-                   'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground md:h-8 md:w-8',
-                   pathname.startsWith(item.href) && 'bg-accent text-accent-foreground'
-                 )}
-               >
-                 <item.icon className="h-5 w-5" />
-                 <span className="sr-only">{item.label}</span>
-               </Link>
-             </TooltipTrigger>
-             <TooltipContent side="right">{item.label}</TooltipContent>
-           </Tooltip>
-          ))}
+
+          {isAdmin &&
+            adminNavItems.map((item) => (
+              <Tooltip key={item.href}>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground md:h-8 md:w-8',
+                      pathname.startsWith(item.href) ? 'bg-accent text-accent-foreground' : ''
+                    )}
+                  >
+                    <item.icon className="h-5 w-5" />
+                    <span className="sr-only">{item.label}</span>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            ))}
         </nav>
+
         <nav className="mt-auto flex flex-col items-center gap-4 px-2 py-4">
           <Tooltip>
             <TooltipTrigger asChild>

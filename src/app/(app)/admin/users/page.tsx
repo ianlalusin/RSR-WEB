@@ -41,14 +41,14 @@ interface GroupedUsers {
 }
 
 export default function UserManagementPage() {
-  const { userProfile: actor } = useAuth();
+  const { userProfile: actor, isPlatformAdminClaim } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [districts, setDistricts] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canManage = isPlatformAdmin(actor);
+  const canManage = isPlatformAdmin(actor, isPlatformAdminClaim);
 
   const handleSuccess = () => {
     // This function can be used to trigger a re-fetch or state update if needed

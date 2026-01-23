@@ -27,7 +27,7 @@ RSR Web is a comprehensive, responsive, and PWA-ready web application designed f
 
 - Node.js (v18 or later)
 - npm, yarn, or pnpm
-- A Firebase project
+- A Firebase project with the **Blaze (pay-as-you-go) plan** enabled. This is required to use the script for setting custom claims.
 
 ### 1. Clone the repository
 
@@ -69,14 +69,23 @@ The application will be available at `http://localhost:3000`.
 
 ### 5. First-time Admin User Setup
 
-1.  Sign up for a new account using the login page.
-2.  Go to your Firebase Console > Firestore Database.
-3.  Find your user document in the `users` collection (the document ID will be your Firebase UID).
-4.  Manually edit the document:
-    - Set the `isActive` field to `true`.
-    - Add `'admin'` to the `roles` array.
+To gain full administrative privileges, you must set a `platformAdmin` custom claim on your user account. This is a secure, one-time setup.
 
-You can now log in as an administrator with full privileges.
+1.  **Sign up for an account** in the application using the login page.
+2.  **Get your UID**:
+    -   Go to the Firebase Console > **Authentication** > **Users** tab.
+    -   Find your user account and copy the **User UID**.
+3.  **Get your Service Account Key**:
+    -   In the Firebase Console, go to **Project settings** > **Service accounts**.
+    -   Click **"Generate new private key"** and save the downloaded JSON file.
+    -   Rename the file to `serviceAccountKey.json` and place it inside the `scripts/` directory of this project. **DO NOT commit this file to version control.**
+4.  **Run the script**:
+    -   Open your terminal in the project root.
+    -   Run the following command, replacing `<your-uid>` with the UID you copied:
+    ```bash
+    node scripts/setPlatformAdmin.js <your-uid>
+    ```
+5.  **Verify**: The script will confirm that the claim has been set. You will now have full administrator access when you log in.
 
 ## Firestore Data Structure & Indexes
 

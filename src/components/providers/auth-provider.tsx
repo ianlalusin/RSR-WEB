@@ -1,16 +1,23 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User, signInWithEmailAndPassword, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
+import {
+  onAuthStateChanged,
+  User,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut as firebaseSignOut,
+} from 'firebase/auth';
 import { auth, db, googleProvider } from '@/lib/firebase';
-import type { UserProfile, AccessLevel, PageKey } from '@/lib/types';
+import type { UserProfile } from '@/lib/types';
 import { doc, onSnapshot, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { Landmark } from 'lucide-react';
-import { ALL_PAGE_KEYS, defaultAccess, platformAdminAccess } from '@/lib/access';
+import { defaultAccess, platformAdminAccess } from '@/lib/access';
 
 interface AuthContextType {
   user: User | null;
   userProfile: UserProfile | null;
+  isPlatformAdminClaim: boolean;
   loading: boolean;
   login: (email: string, pass: string) => Promise<any>;
   loginWithGoogle: () => Promise<any>;
@@ -20,6 +27,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   userProfile: null,
+  isPlatformAdminClaim: false,
   loading: true,
   login: async () => {},
   loginWithGoogle: async () => {},
@@ -38,92 +46,85 @@ const FullScreenLoader = () => (
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isPlatformAdminClaim, setIsPlatformAdminClaim] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let unsubProfile: () => void = () => {};
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      unsubProfile(); // Unsubscribe from previous user's profile listener
-      
-      if (firebaseUser) {
-        setUser(firebaseUser);
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        
-        // Use a one-time getDoc for initial provisioning check
-        const docSnap = await getDoc(userRef);
+      unsubProfile();
+      setLoading(true);
 
-        if (!docSnap.exists()) {
-          // User is logging in for the first time, provision their profile.
-          const isSeedAdmin = firebaseUser.email === 'ianlalusin@gmail.com';
-          
-          const newUserProfile: Omit<UserProfile, 'roles' | 'permissions'> = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            displayName: isSeedAdmin ? 'Platform Admin' : firebaseUser.displayName || 'New User',
-            photoURL: firebaseUser.photoURL || null,
-            isActive: isSeedAdmin, // Only seed admin is active by default
-            departmentId: isSeedAdmin ? 'admin' : undefined,
-            positionId: isSeedAdmin ? 'platformAdmin' : undefined,
-            access: isSeedAdmin ? platformAdminAccess : defaultAccess,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          };
-          await setDoc(userRef, newUserProfile);
-        } else {
-            const existingData = docSnap.data() as UserProfile;
-            // Fallback for existing users without the new `access` structure
-            if (!existingData.access) {
-                await setDoc(userRef, {
-                    access: defaultAccess,
-                    updatedAt: serverTimestamp()
-                }, { merge: true });
-            }
-        }
-
-        // After provisioning/checking, set up the real-time listener
-        unsubProfile = onSnapshot(userRef, (snapshot) => {
-          if (snapshot.exists()) {
-            setUserProfile(snapshot.data() as UserProfile);
-          }
-          setLoading(false);
-        });
-
-      } else {
+      if (!firebaseUser) {
         setUser(null);
         setUserProfile(null);
+        setIsPlatformAdminClaim(false);
         setLoading(false);
+        return;
       }
+
+      setUser(firebaseUser);
+
+      // ✅ Custom claim is the source of truth
+      const token = await firebaseUser.getIdTokenResult(true);
+      const isAdmin = token?.claims?.platformAdmin === true;
+      setIsPlatformAdminClaim(isAdmin);
+
+      const userRef = doc(db, 'users', firebaseUser.uid);
+      const docSnap = await getDoc(userRef);
+
+      // ✅ Only Platform Admin can auto-provision user profile (matches deployed rules)
+      if (!docSnap.exists() && isAdmin) {
+        const newUserProfile: Omit<UserProfile, 'roles' | 'permissions'> = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName || 'Platform Admin',
+          photoURL: firebaseUser.photoURL || null,
+          isActive: true,
+          departmentId: 'admin',
+          positionId: 'platformAdmin',
+          access: platformAdminAccess,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+        await setDoc(userRef, newUserProfile);
+      }
+
+      // ✅ Optional: Platform Admin can apply migration defaults
+      if (docSnap.exists() && isAdmin) {
+        const existingData = docSnap.data() as UserProfile;
+        if (!existingData.access) {
+          await setDoc(
+            userRef,
+            { access: defaultAccess, updatedAt: serverTimestamp() },
+            { merge: true }
+          );
+        }
+      }
+
+      unsubProfile = onSnapshot(userRef, (snapshot) => {
+        if (snapshot.exists()) setUserProfile(snapshot.data() as UserProfile);
+        else setUserProfile(null);
+        setLoading(false);
+      });
     });
 
     return () => {
       unsubscribe();
       unsubProfile();
-    }
+    };
   }, []);
 
-  const login = (email: string, pass: string) => {
-    return signInWithEmailAndPassword(auth, email, pass);
-  };
-  
-  const loginWithGoogle = () => {
-    return signInWithPopup(auth, googleProvider);
-  };
+  const login = (email: string, pass: string) => signInWithEmailAndPassword(auth, email, pass);
+  const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
+  const logout = () => firebaseSignOut(auth);
 
-  const logout = () => {
-    return firebaseSignOut(auth);
-  };
+  const value = { user, userProfile, isPlatformAdminClaim, loading, login, loginWithGoogle, logout };
 
-  const value = { user, userProfile, loading, login, loginWithGoogle, logout };
-  
-  if (loading) {
-    return <FullScreenLoader />;
-  }
+  if (loading) return <FullScreenLoader />;
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);

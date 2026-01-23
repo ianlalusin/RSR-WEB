@@ -6,7 +6,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Barangay } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canViewPage, canDo, hasDistrictScope, isPlatformAdmin } from '@/lib/access';
+import { canViewPage, canDo, hasDistrictScope } from '@/lib/access';
 
 import {
     Card,
@@ -71,9 +71,10 @@ export default function BarangayDetailPage() {
   const brgyId = params.brgyId as string;
   const [barangay, setBarangay] = useState<Barangay | null>(null);
   const [loading, setLoading] = useState(true);
-  const { userProfile } = useAuth();
-  
-  const canView = canViewPage(userProfile, 'barangay_detail');
+  const { userProfile, isPlatformAdminClaim } = useAuth();
+  const authOpts = { isPlatformAdminClaim };
+
+  const canView = canViewPage(userProfile, 'barangay_detail', authOpts);
 
   useEffect(() => {
     if (!brgyId || !canView) {
@@ -85,7 +86,7 @@ export default function BarangayDetailPage() {
       if (doc.exists()) {
         const brgyData = { id: doc.id, ...doc.data() } as Barangay;
         // Scope check
-        if (hasDistrictScope(userProfile, brgyData.districtId)) {
+        if (hasDistrictScope(userProfile, brgyData.districtId, authOpts)) {
             setBarangay(brgyData);
         } else {
             setBarangay(null); // Explicitly set to null if out of scope
@@ -101,7 +102,7 @@ export default function BarangayDetailPage() {
     });
 
     return () => unsub();
-  }, [brgyId, userProfile, canView]);
+  }, [brgyId, userProfile, canView, authOpts]);
 
   if (loading) {
     return <DetailPageSkeleton />;
@@ -111,7 +112,7 @@ export default function BarangayDetailPage() {
     return <AccessDenied />;
   }
   
-  const canWrite = canDo(userProfile, 'barangay_detail', 'update');
+  const canWrite = canDo(userProfile, 'barangay_detail', 'update', authOpts);
 
   return (
     <div className="grid gap-6">

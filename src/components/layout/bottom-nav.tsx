@@ -2,23 +2,19 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Landmark, Users, Menu, User, Shield, HeartHandshake, Briefcase, LineChart } from 'lucide-react';
+import { Home, Landmark, Menu, User, Shield, HeartHandshake, Briefcase, LineChart } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import {
-  Sheet,
-  SheetContent,
-  SheetTrigger,
-} from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from '../ui/button';
 import { useAuth } from '../providers/auth-provider';
 import { canViewPage, isPlatformAdmin } from '@/lib/access';
 import { PageKey } from '@/lib/types';
 
 interface NavItem {
-    href: string;
-    icon: React.ElementType;
-    label: string;
-    pageKey: PageKey;
+  href: string;
+  icon: React.ElementType;
+  label: string;
+  pageKey: PageKey;
 }
 
 const navItems: NavItem[] = [
@@ -31,13 +27,16 @@ const navItems: NavItem[] = [
 
 export function BottomNav() {
   const pathname = usePathname();
-  const { logout, userProfile } = useAuth();
-  
+  const { logout, userProfile, isPlatformAdminClaim } = useAuth();
+
+  const authOpts = { isPlatformAdminClaim };
+  const isAdmin = isPlatformAdmin(userProfile, isPlatformAdminClaim);
+
   return (
     <nav className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 backdrop-blur-sm sm:hidden">
       <div className="flex h-16 items-center justify-around">
         {navItems.map((item) => (
-          canViewPage(userProfile, item.pageKey) && (
+          canViewPage(userProfile, item.pageKey, authOpts) && (
             <Link
               key={item.href}
               href={item.href}
@@ -51,38 +50,41 @@ export function BottomNav() {
             </Link>
           )
         ))}
+
         <Sheet>
           <SheetTrigger asChild>
-            <button className='flex flex-col items-center gap-1 p-2 rounded-md text-muted-foreground'>
+            <button className="flex flex-col items-center gap-1 p-2 rounded-md text-muted-foreground">
               <Menu className="h-6 w-6" />
               <span className="text-xs">More</span>
             </button>
           </SheetTrigger>
-          <SheetContent side="bottom" className='h-auto rounded-t-lg'>
-              <div className="grid grid-cols-2 gap-2 p-4">
-                  {canViewPage(userProfile, 'profile') && (
-                    <Button asChild variant="outline" className="flex-col h-20">
-                        <Link href="/profile">
-                        <User className="h-6 w-6 mb-1"/>
-                        Profile
-                        </Link>
-                    </Button>
-                  )}
-                  {isPlatformAdmin(userProfile) && (
-                    <Button asChild variant="outline" className="flex-col h-20">
-                      <Link href="/admin/users">
-                        <Shield className="h-6 w-6 mb-1"/>
-                        User Access
-                      </Link>
-                    </Button>
-                  )}
-                  <Button variant="outline" className="flex-col h-20 col-span-2" onClick={() => logout()}>
-                    Logout
-                  </Button>
-              </div>
+
+          <SheetContent side="bottom" className="h-auto rounded-t-lg">
+            <div className="grid grid-cols-2 gap-2 p-4">
+              {canViewPage(userProfile, 'profile', authOpts) && (
+                <Button asChild variant="outline" className="flex-col h-20">
+                  <Link href="/profile">
+                    <User className="h-6 w-6 mb-1" />
+                    Profile
+                  </Link>
+                </Button>
+              )}
+
+              {isAdmin && (
+                <Button asChild variant="outline" className="flex-col h-20">
+                  <Link href="/admin/users">
+                    <Shield className="h-6 w-6 mb-1" />
+                    User Access
+                  </Link>
+                </Button>
+              )}
+
+              <Button variant="outline" className="flex-col h-20 col-span-2" onClick={() => logout()}>
+                Logout
+              </Button>
+            </div>
           </SheetContent>
         </Sheet>
-
       </div>
     </nav>
   );

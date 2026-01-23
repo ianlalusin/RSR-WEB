@@ -43,13 +43,14 @@ function AccessDenied() {
 }
 
 export default function BarangaysPage() {
-  const { userProfile } = useAuth();
+  const { userProfile, isPlatformAdminClaim } = useAuth();
   const [barangays, setBarangays] = useState<Barangay[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canView = canViewPage(userProfile, 'barangays_list');
-  const canWrite = canDo(userProfile, 'barangays_list', 'create');
-  const canDeleteBrgy = canDo(userProfile, 'barangays_list', 'delete');
+  const authOpts = { isPlatformAdminClaim };
+  const canView = canViewPage(userProfile, 'barangays_list', authOpts);
+  const canWrite = canDo(userProfile, 'barangays_list', 'create', authOpts);
+  const isAdmin = isPlatformAdmin(userProfile, isPlatformAdminClaim);
 
   useEffect(() => {
     if (!canView || !userProfile) {
@@ -60,9 +61,9 @@ export default function BarangaysPage() {
     const queryConstraints: QueryConstraint[] = [orderBy('name', 'asc')];
     
     // If not a platform admin and has district scope, filter by district
-    if (!isPlatformAdmin(userProfile) && userProfile.access.districtIds.length > 0) {
+    if (!isAdmin && userProfile.access.districtIds.length > 0) {
         queryConstraints.push(where('districtId', 'in', userProfile.access.districtIds));
-    } else if (!isPlatformAdmin(userProfile) && userProfile.access.districtIds.length === 0) {
+    } else if (!isAdmin && userProfile.access.districtIds.length === 0) {
         // If not a platform admin and has no districts assigned, they see nothing.
         setBarangays([]);
         setLoading(false);
@@ -84,7 +85,7 @@ export default function BarangaysPage() {
     }, () => setLoading(false));
 
     return () => unsub();
-  }, [canView, userProfile]);
+  }, [canView, userProfile, isAdmin]);
 
   if (loading) {
     return (
@@ -126,7 +127,7 @@ export default function BarangaysPage() {
           </div>
           {canWrite && (
             <div className="flex items-center gap-2">
-              {canDeleteBrgy && <SyncDistrictsButton />}
+              {isAdmin && <SyncDistrictsButton />}
               <UploadBrgyDialog />
               <BrgyFormDialog>
                   <Button>

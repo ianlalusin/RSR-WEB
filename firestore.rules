@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -------- Helpers --------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isPlatformAdmin() {
+      return signedIn() && request.auth.token.platformAdmin == true;
+    }
+
+    function me() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return signedIn() && (me().isActive == true);
+    }
+
+    // District-only scope: user.access.districtIds
+    function hasDistrict(districtId) {
+      return isPlatformAdmin() || (isActiveUser() && (districtId in me().access.districtIds));
+    }
+
+    // -------- PLATFORM ADMIN: FULL BYPASS --------
+    match /{docPath=**} {
+      allow read, write: if isPlatformAdmin();
+    }
+
+    // -------- Users --------
+    match /users/{uid} {
+      // Users can read their own profile; Platform Admin already bypasses above.
+      allow read: if signedIn() && request.auth.uid == uid;
+
+      // Only Platform Admin can create/update user profiles to prevent privilege escalation.
+      // (If you later want self-edit for some fields, we can add a safe allowlist.)
+      allow create, update, delete: if false;
+    }
+
+    // -------- Org metadata (departments/positions) --------
+    // Keep readable for authenticated users, write locked to Platform Admin (bypass already covers admin).
+    match /org/departments/{deptId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /org/positions/{posId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // -------- Field data (district-scoped) --------
+    // Recommended structure: /field/districts/{districtId}/...
+    match /field/districts/{districtId}/{doc=**} {
+      allow read, write: if hasDistrict(districtId);
+    }
+
+    // -------- Audit logs --------
+    match /auditLogs/{logId} {
+      // Platform Admin bypass covers full access.
+      // Others can create logs (optional). You can tighten later.
+      allow create: if signedIn();
+      allow read, update, delete: if false;
+    }
+
+    // -------- Default deny --------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
