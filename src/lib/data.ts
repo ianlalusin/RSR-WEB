@@ -1,4 +1,4 @@
-import { Barangay, Coordinator } from "./types";
+import { Barangay } from "./types";
 
 export const mockBarangays: Barangay[] = [
   {
@@ -29,52 +29,4 @@ export const mockBarangays: Barangay[] = [
     createdAt: new Date() as any,
     updatedAt: new Date() as any,
   },
-];
-
-export const mockCoordinators: Coordinator[] = [
-    {
-        id: "coord-01",
-        employmentId: "EMP-001",
-        name: "Juan Dela Cruz",
-        address: "123 Rizal St, Quezon City",
-        contact: "09171234567",
-        gender: "male",
-        birthday: new Date('1990-05-15') as any,
-        departmentId: "Finance",
-        role: "Accountant",
-        employmentStartDate: new Date('2020-01-15') as any,
-        status: "active",
-        createdAt: new Date() as any,
-        updatedAt: new Date() as any,
-    },
-    {
-        id: "coord-02",
-        employmentId: "EMP-002",
-        name: "Maria Clara",
-        address: "456 Mabini Ave, Manila",
-        contact: "09209876543",
-        gender: "female",
-        birthday: new Date('1992-08-22') as any,
-        departmentId: "Operations",
-        role: "Operations Manager",
-        employmentStartDate: new Date('2019-07-20') as any,
-        status: "active",
-        createdAt: new Date() as any,
-        updatedAt: new Date() as any,
-    },
-    {
-        id: "coord-03",
-        employmentId: "EMP-003",
-        name: "Jose Rizal",
-        address: "789 Bonifacio St, Pasig",
-        contact: "09181112233",
-        gender: "male",
-        birthday: new Date('1985-11-10') as any,
-        departmentId: "Marketing",
-        role: "Marketing Head",
-        employmentStartDate: new Date('2018-03-01') as any,
-        status: "on_leave",
-        createdAt: new Date() as any,
-        updatedAt: new Date() as any,
-    }
 ];

@@ -360,12 +360,18 @@ type AddDepartmentData = Omit<Department, 'id' | 'createdAt' | 'updatedAt'>;
 
 export async function addDepartment(data: AddDepartmentData, actor: Actor) {
     try {
-        const newDeptRef = await addDoc(collection(db, 'departments'), {
+        const batch = writeBatch(db);
+        const newDeptRef = doc(collection(db, 'departments'));
+        
+        batch.set(newDeptRef, {
             ...data,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
         });
 
+        const listDocRef = doc(db, 'lists', 'departments');
+        batch.set(listDocRef, { departments: { [newDeptRef.id]: { name: data.name, description: data.description || '' } } }, { merge: true });
+        
         await logAudit({
             actorUid: actor.uid,
             actorEmail: actor.email,
@@ -375,6 +381,7 @@ export async function addDepartment(data: AddDepartmentData, actor: Actor) {
             details: data,
         });
         
+        await batch.commit();
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
@@ -383,11 +390,15 @@ export async function addDepartment(data: AddDepartmentData, actor: Actor) {
 
 export async function updateDepartment(id: string, data: Partial<Omit<Department, 'id'>>, actor: Actor) {
     try {
+        const batch = writeBatch(db);
         const deptDoc = doc(db, 'departments', id);
-        await updateDoc(deptDoc, {
-            ...data,
-            updatedAt: serverTimestamp(),
-        });
+        batch.update(deptDoc, { ...data, updatedAt: serverTimestamp() });
+
+        const listDocRef = doc(db, 'lists', 'departments');
+        const listUpdateData: Record<string, any> = {};
+        if (data.name !== undefined) listUpdateData[`departments.${id}.name`] = data.name;
+        if (data.description !== undefined) listUpdateData[`departments.${id}.description`] = data.description;
+        batch.update(listDocRef, listUpdateData);
 
         await logAudit({
             actorUid: actor.uid,
@@ -397,7 +408,8 @@ export async function updateDepartment(id: string, data: Partial<Omit<Department
             entityId: id,
             details: data,
         });
-
+        
+        await batch.commit();
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
@@ -406,8 +418,12 @@ export async function updateDepartment(id: string, data: Partial<Omit<Department
 
 export async function deleteDepartment(id: string, actor: Actor) {
     try {
+        const batch = writeBatch(db);
         const deptDoc = doc(db, 'departments', id);
-        await deleteDoc(deptDoc);
+        batch.delete(deptDoc);
+
+        const listDocRef = doc(db, 'lists', 'departments');
+        batch.update(listDocRef, { [`departments.${id}`]: deleteField() });
 
         await logAudit({
             actorUid: actor.uid,
@@ -417,6 +433,7 @@ export async function deleteDepartment(id: string, actor: Actor) {
             entityId: id,
         });
 
+        await batch.commit();
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
@@ -428,11 +445,16 @@ type AddPositionData = Omit<Position, 'id' | 'createdAt' | 'updatedAt'>;
 
 export async function addPosition(data: AddPositionData, actor: Actor) {
     try {
-        const newPosRef = await addDoc(collection(db, 'positions'), {
+        const batch = writeBatch(db);
+        const newPosRef = doc(collection(db, 'positions'));
+        batch.set(newPosRef, {
             ...data,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
         });
+        
+        const listDocRef = doc(db, 'lists', 'positions');
+        batch.set(listDocRef, { positions: { [newPosRef.id]: { name: data.name } } }, { merge: true });
 
         await logAudit({
             actorUid: actor.uid,
@@ -443,6 +465,7 @@ export async function addPosition(data: AddPositionData, actor: Actor) {
             details: data,
         });
         
+        await batch.commit();
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
@@ -451,11 +474,12 @@ export async function addPosition(data: AddPositionData, actor: Actor) {
 
 export async function updatePosition(id: string, data: Partial<Omit<Position, 'id'>>, actor: Actor) {
     try {
+        const batch = writeBatch(db);
         const posDoc = doc(db, 'positions', id);
-        await updateDoc(posDoc, {
-            ...data,
-            updatedAt: serverTimestamp(),
-        });
+        batch.update(posDoc, { ...data, updatedAt: serverTimestamp() });
+        
+        const listDocRef = doc(db, 'lists', 'positions');
+        batch.update(listDocRef, { [`positions.${id}.name`]: data.name });
 
         await logAudit({
             actorUid: actor.uid,
@@ -466,6 +490,7 @@ export async function updatePosition(id: string, data: Partial<Omit<Position, 'i
             details: data,
         });
         
+        await batch.commit();
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
@@ -474,8 +499,12 @@ export async function updatePosition(id: string, data: Partial<Omit<Position, 'i
 
 export async function deletePosition(id: string, actor: Actor) {
     try {
+        const batch = writeBatch(db);
         const posDoc = doc(db, 'positions', id);
-        await deleteDoc(posDoc);
+        batch.delete(posDoc);
+
+        const listDocRef = doc(db, 'lists', 'positions');
+        batch.update(listDocRef, { [`positions.${id}`]: deleteField() });
 
         await logAudit({
             actorUid: actor.uid,
@@ -485,6 +514,7 @@ export async function deletePosition(id: string, actor: Actor) {
             entityId: id,
         });
 
+        await batch.commit();
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };

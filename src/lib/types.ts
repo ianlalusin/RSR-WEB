@@ -117,34 +117,6 @@ export interface CaptainProfile {
   createdByEmail?: string | null;
 }
 
-export interface Coordinator {
-  id: string;
-  employmentId: string;
-  name: string;
-  address: string;
-  contact: string;
-  gender: 'male' | 'female' | 'other' | 'prefer_not_to_say';
-  birthday: Timestamp;
-  departmentId: string; // Should link to Department.id
-  role: string;
-  employmentStartDate: Timestamp;
-  status: 'active' | 'inactive' | 'on_leave';
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-
-export interface CoordinatorReport {
-  id: string;
-  coordinatorId: string;
-  brgyId: string;
-  districtId: string;
-  title: string;
-  notes: string;
-  createdByUid: string;
-  createdAt: Timestamp;
-}
-
 export type ProjectSector = "medical" | "educational" | "infrastructure";
 export type ValueType = "cash" | "in-kind" | "service";
 export type RecordStatus = "draft" | "submitted" | "approved" | "released" | "archived";
@@ -176,12 +148,29 @@ export interface Department {
   updatedAt: Timestamp;
 }
 
+export interface DepartmentListItem {
+  name: string;
+  description?: string;
+}
+
+export interface DepartmentListDoc {
+  departments: Record<string, DepartmentListItem>;
+}
+
 // UPDATED: Position is now just metadata
 export interface Position {
   id: string;
   name: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+export interface PositionListItem {
+    name: string;
+}
+
+export interface PositionListDoc {
+    positions: Record<string, PositionListItem>;
 }
 
 

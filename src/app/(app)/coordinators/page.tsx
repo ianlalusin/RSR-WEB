@@ -7,15 +7,15 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Coordinator, Department, Position, UserProfile } from '@/lib/types';
+import { Department, Position, UserProfile, DepartmentListDoc, PositionListDoc } from '@/lib/types';
 import { DataTable } from './data-table';
-import { columns as orgMemberColumns } from './columns';
+import { getOrgMemberColumns } from './columns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useEffect, useState, useMemo } from 'react';
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, onSnapshot, orderBy, query, doc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canViewPage, canDo, isPlatformAdmin } from '@/lib/access';
+import { canViewPage, canDo } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, MoreHorizontal, Trash2, Edit, Loader2, AlertTriangle } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
@@ -57,7 +57,6 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { mockCoordinators } from '@/lib/data';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 
@@ -206,27 +205,7 @@ function DeleteDepartmentAlert({ department, children, onSuccess }: { department
 
 
 // --- Departments Tab ---
-function DepartmentsTab() {
-  const { userProfile } = useAuth();
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const canWrite = canDo(userProfile, 'organization_departments', 'update');
-  const canDel = canDo(userProfile, 'organization_departments', 'delete');
-
-  useEffect(() => {
-    const q = query(collection(db, 'departments'), orderBy('name', 'asc'));
-    const unsub = onSnapshot(q, (snap) => {
-      const data: Department[] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Department));
-      setDepartments(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Failed to fetch departments:", error);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
-
+function DepartmentsTab({ departments, loading, canWrite, canDel }: { departments: Department[], loading: boolean, canWrite: boolean, canDel: boolean }) {
   const departmentColumns: ColumnDef<Department>[] = [
     { accessorKey: 'name', header: 'Name' },
     { accessorKey: 'description', header: 'Description', cell: ({row}) => <p className='line-clamp-2 text-muted-foreground text-xs'>{row.original.description || 'N/A'}</p> },
@@ -412,29 +391,7 @@ function DeletePositionAlert({ position, children, onSuccess }: { position: Posi
 }
 
 // --- Positions Tab ---
-function PositionsTab() {
-  const { userProfile } = useAuth();
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const canWrite = canDo(userProfile, 'organization_positions', 'update');
-  const canDel = canDo(userProfile, 'organization_positions', 'delete');
-
-  useEffect(() => {
-    const posQuery = query(collection(db, 'positions'), orderBy('name', 'asc'));
-    const posUnsub = onSnapshot(posQuery, (snap) => {
-      setPositions(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Position)));
-      setLoading(false);
-    }, (error) => {
-      console.error("Failed to fetch positions:", error);
-      setLoading(false);
-    });
-    
-    return () => {
-      posUnsub();
-    };
-  }, []);
-
+function PositionsTab({ positions, loading, canWrite, canDel }: { positions: Position[], loading: boolean, canWrite: boolean, canDel: boolean }) {
   const positionColumns: ColumnDef<Position>[] = [
     { accessorKey: 'name', header: 'Position' },
     {
@@ -496,15 +453,8 @@ function PositionsTab() {
 
 
 // --- Org Members Tab ---
-function OrgMembersTab() {
-  const [orgMembers, setOrgMembers] = useState<Coordinator[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // NOTE: This uses mock data. In a real app, you would fetch from Firestore.
-  useEffect(() => {
-    setOrgMembers(mockCoordinators);
-    setLoading(false);
-  }, []);
+function OrgMembersTab({ users, departments, positions, loading }: { users: UserProfile[], departments: Department[], positions: Position[], loading: boolean }) {
+  const orgMemberColumns = useMemo(() => getOrgMemberColumns(departments, positions), [departments, positions]);
   
   if (loading) {
     return (
@@ -524,7 +474,7 @@ function OrgMembersTab() {
                 To manage user permissions, districts, and status, please go to the <a href="/admin/users" className="font-semibold underline">User Access Management</a> page (Platform Admins only).
             </AlertDescription>
         </Alert>
-        <DataTable columns={orgMemberColumns} data={orgMembers} />
+        <DataTable columns={orgMemberColumns} data={users} />
     </div>
     )
 }
@@ -546,9 +496,83 @@ function AccessDenied() {
 export default function OrganizationPage() {
   const { userProfile } = useAuth();
   
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const canViewMembers = canViewPage(userProfile, 'organization_orgMembers');
   const canViewDepts = canViewPage(userProfile, 'organization_departments');
   const canViewPositions = canViewPage(userProfile, 'organization_positions');
+  const canWriteDepts = canDo(userProfile, 'organization_departments', 'update');
+  const canDelDepts = canDo(userProfile, 'organization_departments', 'delete');
+  const canWritePositions = canDo(userProfile, 'organization_positions', 'update');
+  const canDelPositions = canDo(userProfile, 'organization_positions', 'delete');
+
+  useEffect(() => {
+    let userUnsub: () => void = () => {};
+    let deptUnsub: () => void = () => {};
+    let posUnsub: () => void = () => {};
+    
+    setLoading(true);
+
+    if (canViewMembers) {
+        userUnsub = onSnapshot(query(collection(db, 'users'), orderBy('displayName', 'asc')), (snap) => {
+            setUsers(snap.docs.map(d => d.data() as UserProfile));
+        });
+    }
+
+    if (canViewDepts) {
+        const deptListRef = doc(db, 'lists', 'departments');
+        deptUnsub = onSnapshot(deptListRef, async (snap) => {
+            if (snap.exists()) {
+                const listData = snap.data() as DepartmentListDoc;
+                const depts = Object.entries(listData.departments || {}).map(([id, data]) => ({ id, ...data } as Department));
+                setDepartments(depts.sort((a,b) => a.name.localeCompare(b.name)));
+            } else {
+                console.log("Departments list document not found. Generating from collection...");
+                const deptCollection = collection(db, 'departments');
+                const deptSnapshot = await getDocs(query(deptCollection));
+                const listUpdates: Record<string, any> = {};
+                deptSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    listUpdates[doc.id] = { name: data.name, description: data.description || '' };
+                });
+                await setDoc(deptListRef, { departments: listUpdates });
+            }
+        });
+    }
+
+    if (canViewPositions) {
+        const posListRef = doc(db, 'lists', 'positions');
+        posUnsub = onSnapshot(posListRef, async (snap) => {
+            if (snap.exists()) {
+                const listData = snap.data() as PositionListDoc;
+                const pos = Object.entries(listData.positions || {}).map(([id, data]) => ({ id, ...data } as Position));
+                setPositions(pos.sort((a,b) => a.name.localeCompare(b.name)));
+            } else {
+                console.log("Positions list document not found. Generating from collection...");
+                const posCollection = collection(db, 'positions');
+                const posSnapshot = await getDocs(query(posCollection));
+                const listUpdates: Record<string, any> = {};
+                posSnapshot.forEach(doc => {
+                    listUpdates[doc.id] = { name: doc.data().name };
+                });
+                await setDoc(posListRef, { positions: listUpdates });
+            }
+        });
+    }
+
+    // A simple timeout to bundle loading states
+    const timer = setTimeout(() => setLoading(false), 1500);
+
+    return () => {
+        userUnsub();
+        deptUnsub();
+        posUnsub();
+        clearTimeout(timer);
+    }
+  }, [canViewMembers, canViewDepts, canViewPositions]);
 
   if (!canViewMembers && !canViewDepts && !canViewPositions) {
       return <AccessDenied />;
@@ -571,9 +595,9 @@ export default function OrganizationPage() {
             {canViewDepts && <TabsTrigger value="departments">Departments</TabsTrigger>}
             {canViewPositions && <TabsTrigger value="positions">Positions</TabsTrigger>}
           </TabsList>
-          {canViewMembers && <TabsContent value="org-members"><OrgMembersTab /></TabsContent>}
-          {canViewDepts && <TabsContent value="departments"><DepartmentsTab /></TabsContent>}
-          {canViewPositions && <TabsContent value="positions"><PositionsTab /></TabsContent>}
+          {canViewMembers && <TabsContent value="org-members"><OrgMembersTab users={users} departments={departments} positions={positions} loading={loading} /></TabsContent>}
+          {canViewDepts && <TabsContent value="departments"><DepartmentsTab departments={departments} loading={loading} canWrite={canWriteDepts} canDel={canDelDepts} /></TabsContent>}
+          {canViewPositions && <TabsContent value="positions"><PositionsTab positions={positions} loading={loading} canWrite={canWritePositions} canDel={canDelPositions} /></TabsContent>}
         </Tabs>
       </CardContent>
     </Card>

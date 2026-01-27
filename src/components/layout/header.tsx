@@ -54,10 +54,10 @@ export function Header() {
                 Barangays
               </Link>
               <Link
-                href="/coordinators"
+                href="/organization"
                 className="flex items-center gap-4 px-2.5 text-muted-foreground hover:text-foreground"
               >
-                Coordinators
+                Organization
               </Link>
             </nav>
           </SheetContent>

@@ -1,89 +1,44 @@
 'use client';
 
 import { ColumnDef } from '@tanstack/react-table';
-import { Coordinator } from '@/lib/types';
+import { Department, Position, UserProfile } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
-import { MoreHorizontal } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { differenceInYears } from 'date-fns';
 import { cn } from '@/lib/utils';
 
-export const columns: ColumnDef<Coordinator>[] = [
+export const getOrgMemberColumns = (departments: Department[], positions: Position[]): ColumnDef<UserProfile>[] => [
   {
-    accessorKey: 'employmentId',
-    header: 'Emp. ID',
-  },
-  {
-    accessorKey: 'name',
+    accessorKey: 'displayName',
     header: 'Name',
   },
   {
-    header: 'Age',
+    header: 'Department',
+    accessorKey: 'departmentId',
     cell: ({ row }) => {
-        const birthday = row.original.birthday;
-        if (!birthday) return 'N/A';
-        // Firestore Timestamps can be converted with .toDate()
-        const birthDate = (birthday as any).toDate ? (birthday as any).toDate() : new Date(birthday as any);
-        return differenceInYears(new Date(), birthDate);
+        const department = departments.find(d => d.id === row.original.departmentId);
+        return department?.name || 'N/A';
     }
   },
   {
-    accessorKey: 'departmentId',
-    header: 'Department',
+    header: 'Position',
+    accessorKey: 'positionId',
+     cell: ({ row }) => {
+        const position = positions.find(p => p.id === row.original.positionId);
+        return position?.name || 'N/A';
+    }
   },
   {
-    accessorKey: 'role',
-    header: 'Role',
+    accessorKey: 'email',
+    header: 'Email',
   },
   {
-    accessorKey: 'contact',
-    header: 'Contact No.',
-  },
-  {
-    accessorKey: 'status',
+    accessorKey: 'isActive',
     header: 'Status',
     cell: ({ row }) => {
-      const status = row.getValue('status') as string;
-      const variant: "default" | "secondary" | "outline" = 
-        status === 'active' ? 'default'
-        : status === 'on_leave' ? 'secondary'
-        : 'outline';
-      const className = 
-        status === 'active' ? 'bg-green-100 text-green-800'
-        : status === 'on_leave' ? 'bg-yellow-100 text-yellow-800'
-        : status === 'inactive' ? 'bg-red-100 text-red-800' : '';
-
+      const isActive = row.getValue('isActive') as boolean;
       return (
-        <Badge variant={variant} className={cn('capitalize', className)}>
-          {status.replace(/_/g, ' ')}
+        <Badge variant={isActive ? 'default' : 'secondary'} className={cn('capitalize', isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')}>
+          {isActive ? 'Active' : 'Inactive'}
         </Badge>
-      );
-    },
-  },
-  {
-    id: 'actions',
-    cell: ({ row }) => {
-      return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-8 w-8 p-0">
-              <span className="sr-only">Open menu</span>
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuItem>View Details</DropdownMenuItem>
-            <DropdownMenuItem>Edit Member</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       );
     },
   },
