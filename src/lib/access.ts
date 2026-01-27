@@ -67,7 +67,12 @@ export function canViewPage(
     return page === 'dashboard' || page === 'profile';
   }
 
-  return u.access.pages[page]?.level !== 'restricted';
+  const pageAccess = u.access.pages[page];
+  if (!pageAccess || typeof pageAccess !== 'object' || !('level' in pageAccess)) {
+    return false; // Invalid access structure
+  }
+
+  return pageAccess.level !== 'restricted';
 }
 
 export function canDo(
