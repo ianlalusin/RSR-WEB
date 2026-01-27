@@ -14,15 +14,15 @@ interface NavItem {
   href: string;
   icon: React.ElementType;
   label: string;
-  pageKey: PageKey;
+  pageKeys: PageKey[];
 }
 
 const navItems: NavItem[] = [
-  { href: '/', icon: Home, label: 'Dashboard', pageKey: 'dashboard' },
-  { href: '/barangays', icon: Landmark, label: 'Barangays', pageKey: 'barangays_list' },
-  { href: '/coordinators', icon: Briefcase, label: 'Organization', pageKey: 'organization_orgMembers' },
-  { href: '/assistance', icon: HeartHandshake, label: 'Projects', pageKey: 'assistance_projects' },
-  { href: '/analytics', icon: LineChart, label: 'Analytics', pageKey: 'analytics' },
+  { href: '/', icon: Home, label: 'Dashboard', pageKeys: ['dashboard'] },
+  { href: '/barangays', icon: Landmark, label: 'Barangays', pageKeys: ['barangays_list'] },
+  { href: '/organization', icon: Briefcase, label: 'Organization', pageKeys: ['organization_orgMembers', 'organization_departments', 'organization_positions'] },
+  { href: '/assistance', icon: HeartHandshake, label: 'Projects', pageKeys: ['assistance_projects'] },
+  { href: '/analytics', icon: LineChart, label: 'Analytics', pageKeys: ['analytics'] },
 ];
 
 export function BottomNav() {
@@ -36,7 +36,7 @@ export function BottomNav() {
     <nav className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 backdrop-blur-sm sm:hidden">
       <div className="flex h-16 items-center justify-around">
         {navItems.map((item) => (
-          canViewPage(userProfile, item.pageKey, authOpts) && (
+          item.pageKeys.some(key => canViewPage(userProfile, key, authOpts)) && (
             <Link
               key={item.href}
               href={item.href}

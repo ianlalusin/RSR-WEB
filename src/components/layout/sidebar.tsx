@@ -13,15 +13,15 @@ interface NavItem {
   href: string;
   icon: React.ElementType;
   label: string;
-  pageKey: PageKey;
+  pageKeys: PageKey[];
 }
 
 const navItems: NavItem[] = [
-  { href: '/', icon: Home, label: 'Dashboard', pageKey: 'dashboard' },
-  { href: '/barangays', icon: Landmark, label: 'Barangays', pageKey: 'barangays_list' },
-  { href: '/coordinators', icon: Briefcase, label: 'Organization', pageKey: 'organization_orgMembers' },
-  { href: '/assistance', icon: HeartHandshake, label: 'Projects', pageKey: 'assistance_projects' },
-  { href: '/analytics', icon: LineChart, label: 'Analytics', pageKey: 'analytics' },
+  { href: '/', icon: Home, label: 'Dashboard', pageKeys: ['dashboard'] },
+  { href: '/barangays', icon: Landmark, label: 'Barangays', pageKeys: ['barangays_list'] },
+  { href: '/organization', icon: Briefcase, label: 'Organization', pageKeys: ['organization_orgMembers', 'organization_departments', 'organization_positions'] },
+  { href: '/assistance', icon: HeartHandshake, label: 'Projects', pageKeys: ['assistance_projects'] },
+  { href: '/analytics', icon: LineChart, label: 'Analytics', pageKeys: ['analytics'] },
 ];
 
 const adminNavItems = [
@@ -48,7 +48,7 @@ export function Sidebar() {
           </Link>
 
           {navItems.map((item) => (
-            canViewPage(userProfile, item.pageKey, authOpts) && (
+            item.pageKeys.some(key => canViewPage(userProfile, key, authOpts)) && (
               <Tooltip key={item.href}>
                 <TooltipTrigger asChild>
                   <Link
