@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import {
   collection,
   onSnapshot,
   query,
-  orderBy,
-  where,
-  QueryConstraint,
+  doc,
+  getDocs,
+  setDoc,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
@@ -17,7 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Barangay } from '@/lib/types';
+import { Barangay, BarangayListDoc } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage, canDo, isPlatformAdmin } from '@/lib/access';
 import { DataTable } from './data-table';
@@ -57,31 +57,62 @@ export default function BarangaysPage() {
       return;
     }
 
-    const queryConstraints: QueryConstraint[] = [orderBy('name', 'asc')];
-    
-    // If not a platform admin and has district scope, filter by district
-    if (!isAdmin && userProfile.access.districtIds.length > 0) {
-        queryConstraints.push(where('districtId', 'in', userProfile.access.districtIds));
-    } else if (!isAdmin && userProfile.access.districtIds.length === 0) {
-        // If not a platform admin and has no districts assigned, they see nothing.
-        setBarangays([]);
+    const listDocRef = doc(db, 'lists', 'barangays');
+
+    const unsub = onSnapshot(listDocRef, async (docSnap) => {
+      if (docSnap.exists()) {
+        const listData = docSnap.data() as BarangayListDoc;
+        let allBarangays = Object.entries(listData.barangays || {}).map(([id, data]) => ({
+          ...data,
+          id,
+        }));
+
+        if (!isAdmin && userProfile.access.districtIds.length > 0) {
+          allBarangays = allBarangays.filter(brgy => userProfile.access.districtIds.includes(brgy.districtId));
+        } else if (!isAdmin && userProfile.access.districtIds.length === 0) {
+          allBarangays = [];
+        }
+
+        setBarangays(allBarangays.sort((a, b) => a.name.localeCompare(b.name)) as Barangay[]);
         setLoading(false);
-        return;
-    }
+      } else {
+        // One-time migration: List doc doesn't exist, create it from collection
+        setLoading(true);
+        console.log("Barangay list document not found. Generating from collection...");
 
-    const q = query(
-      collection(db, 'barangays'),
-      ...queryConstraints
-    );
+        const brgyCollectionRef = collection(db, 'barangays');
+        const brgyQuery = query(brgyCollectionRef);
+        const brgySnapshot = await getDocs(brgyQuery);
 
-    const unsub = onSnapshot(q, (snap) => {
-      const data: Barangay[] = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as any),
-      }));
-      setBarangays(data);
-      setLoading(false);
-    }, () => setLoading(false));
+        if (brgySnapshot.empty) {
+            await setDoc(listDocRef, { barangays: {} });
+            setBarangays([]);
+            setLoading(false);
+            return;
+        }
+
+        const listUpdates: Record<string, any> = {};
+        brgySnapshot.forEach(brgyDoc => {
+          const brgyData = brgyDoc.data() as Omit<Barangay, 'id'>;
+          listUpdates[brgyDoc.id] = {
+            name: brgyData.name,
+            districtId: brgyData.districtId,
+            districtName: brgyData.districtName,
+            population: brgyData.population,
+            votingPopulation: brgyData.votingPopulation,
+            rsrVotes: brgyData.rsrVotes,
+            favoredVotePct: brgyData.favoredVotePct,
+            isWin: brgyData.isWin,
+          };
+        });
+
+        await setDoc(listDocRef, { barangays: listUpdates });
+        // The snapshot listener will be triggered again by setDoc, and then it will set state and loading.
+      }
+    }, (error) => {
+        console.error("Error fetching barangay list:", error);
+        setLoading(false)
+    });
 
     return () => unsub();
   }, [canView, userProfile, isAdmin]);

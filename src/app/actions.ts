@@ -7,7 +7,7 @@ import {
 import { db } from '@/lib/firebase';
 import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department, Position } from '@/lib/types';
 import { logAudit } from '@/lib/audit';
-import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch, deleteField } from 'firebase/firestore';
 
 export async function generateBarangayProfiles(input: GenerateBarangayProfilesInput, actor: Actor) {
   try {
@@ -50,6 +50,24 @@ export async function addBarangay(data: AddBarangayData, actor: Actor) {
             updatedAt: serverTimestamp(),
         });
 
+        const listItemData = {
+            name: data.name,
+            districtId: data.districtId,
+            districtName: data.districtName,
+            population: data.population,
+            votingPopulation: data.votingPopulation,
+            rsrVotes: data.rsrVotes,
+            favoredVotePct: data.favoredVotePct,
+            isWin: data.isWin,
+        };
+        
+        const listDocRef = doc(db, 'lists', 'barangays');
+        batch.set(listDocRef, {
+            barangays: {
+                [newBrgyRef.id]: listItemData
+            }
+        }, { merge: true });
+
         await logAudit({
             actorUid: actor.uid,
             actorEmail: actor.email,
@@ -77,6 +95,21 @@ export async function updateBarangay(id: string, data: Partial<Omit<Barangay, 'i
             updatedAt: serverTimestamp(),
         });
 
+        const listUpdateData: Record<string, any> = {};
+        if (data.name !== undefined) listUpdateData[`barangays.${id}.name`] = data.name;
+        if (data.districtId !== undefined) listUpdateData[`barangays.${id}.districtId`] = data.districtId;
+        if (data.districtName !== undefined) listUpdateData[`barangays.${id}.districtName`] = data.districtName;
+        if (data.population !== undefined) listUpdateData[`barangays.${id}.population`] = data.population;
+        if (data.votingPopulation !== undefined) listUpdateData[`barangays.${id}.votingPopulation`] = data.votingPopulation;
+        if (data.rsrVotes !== undefined) listUpdateData[`barangays.${id}.rsrVotes`] = data.rsrVotes;
+        if (data.favoredVotePct !== undefined) listUpdateData[`barangays.${id}.favoredVotePct`] = data.favoredVotePct;
+        if (data.isWin !== undefined) listUpdateData[`barangays.${id}.isWin`] = data.isWin;
+
+        if (Object.keys(listUpdateData).length > 0) {
+            const listDocRef = doc(db, 'lists', 'barangays');
+            batch.update(listDocRef, listUpdateData);
+        }
+
         await logAudit({
             actorUid: actor.uid,
             actorEmail: actor.email,
@@ -99,6 +132,11 @@ export async function deleteBarangay(id: string, actor: Actor) {
         const brgyDoc = doc(db, 'barangays', id);
         batch.delete(brgyDoc);
 
+        const listDocRef = doc(db, 'lists', 'barangays');
+        batch.update(listDocRef, {
+            [`barangays.${id}`]: deleteField()
+        });
+
         await logAudit({
             actorUid: actor.uid,
             actorEmail: actor.email,
@@ -119,6 +157,8 @@ export async function bulkAddBarangays(data: Omit<Barangay, 'id' | 'createdAt' |
         const brgyCollection = collection(db, 'barangays');
         const batch = writeBatch(db);
 
+        const listUpdates: Record<string, any> = {};
+
         data.forEach(brgyData => {
             const docRef = doc(brgyCollection);
             batch.set(docRef, {
@@ -126,7 +166,22 @@ export async function bulkAddBarangays(data: Omit<Barangay, 'id' | 'createdAt' |
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
             });
+
+            const listItemData = {
+                name: brgyData.name,
+                districtId: brgyData.districtId,
+                districtName: brgyData.districtName,
+                population: brgyData.population,
+                votingPopulation: brgyData.votingPopulation,
+                rsrVotes: brgyData.rsrVotes,
+                favoredVotePct: brgyData.favoredVotePct,
+                isWin: brgyData.isWin,
+            };
+            listUpdates[docRef.id] = listItemData;
         });
+
+        const listDocRef = doc(db, 'lists', 'barangays');
+        batch.set(listDocRef, { barangays: listUpdates }, { merge: true });
 
         await logAudit({
             actorUid: actor.uid,

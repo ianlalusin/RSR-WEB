@@ -82,6 +82,21 @@ export interface Barangay {
   updatedAt: Timestamp;
 }
 
+export interface BarangayListItem {
+  name: string;
+  districtId: string;
+  districtName: string;
+  population: number;
+  votingPopulation: number;
+  rsrVotes: number;
+  favoredVotePct: number;
+  isWin: boolean;
+}
+
+export interface BarangayListDoc {
+    barangays: Record<string, BarangayListItem>;
+}
+
 export interface CaptainProfile {
   captain: {
     name: string;
