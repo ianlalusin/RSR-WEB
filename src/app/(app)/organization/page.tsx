@@ -261,7 +261,7 @@ function DepartmentsTab({ departments, loading, canWrite, canDel }: { department
             </DepartmentFormDialog>
             )}
         </div>
-        <DataTable columns={departmentColumns} data={departments} />
+        <DataTable columns={departmentColumns} data={departments} filterColumnId="name" filterPlaceholder="Filter departments..." />
     </div>
   );
 }
@@ -446,7 +446,7 @@ function PositionsTab({ positions, loading, canWrite, canDel }: { positions: Pos
             </PositionFormDialog>
             )}
         </div>
-        <DataTable columns={positionColumns} data={positions} />
+        <DataTable columns={positionColumns} data={positions} filterColumnId="name" filterPlaceholder="Filter positions..." />
     </div>
   );
 }
@@ -474,7 +474,7 @@ function OrgMembersTab({ users, departments, positions, loading }: { users: User
                 To manage user permissions, districts, and status, please go to the <a href="/admin/users" className="font-semibold underline">User Access Management</a> page (Platform Admins only).
             </AlertDescription>
         </Alert>
-        <DataTable columns={orgMemberColumns} data={users} />
+        <DataTable columns={orgMemberColumns} data={users} filterColumnId="displayName" filterPlaceholder="Filter by name..." />
     </div>
     )
 }
