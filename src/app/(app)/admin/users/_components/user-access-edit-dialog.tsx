@@ -16,6 +16,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -184,11 +185,17 @@ export default function UserAccessEditDialog({
                       <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm col-span-1">
                         <div className="space-y-0.5">
                           <FormLabel>Active Status</FormLabel>
+                          {user.uid === actor.uid && (
+                            <FormDescription className="text-xs">
+                              You cannot make yourself inactive.
+                            </FormDescription>
+                          )}
                         </div>
                         <FormControl>
                           <Switch
                             checked={field.value}
                             onCheckedChange={field.onChange}
+                            disabled={user.uid === actor.uid}
                           />
                         </FormControl>
                       </FormItem>
