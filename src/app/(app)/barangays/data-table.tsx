@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ColumnDef,
   flexRender,
@@ -23,6 +24,7 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Barangay } from '@/lib/types';
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -33,6 +35,7 @@ export function DataTable<TData, TValue>({
   columns,
   data,
 }: DataTableProps<TData, TValue>) {
+    const router = useRouter();
     const [sorting, setSorting] = useState<SortingState>([])
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 
@@ -89,6 +92,11 @@ export function DataTable<TData, TValue>({
                 <TableRow
                     key={row.id}
                     data-state={row.getIsSelected() && 'selected'}
+                    className="cursor-pointer"
+                    onClick={() => {
+                        const barangay = row.original as Barangay;
+                        router.push(`/barangays/${barangay.id}`);
+                    }}
                 >
                     {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
