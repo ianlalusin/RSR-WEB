@@ -22,7 +22,7 @@ export type PageKey =
   | 'organization_orgMembers'
   | 'organization_departments'
   | 'organization_positions'
-  | 'assistance_projects'
+  | 'projects'
   | 'analytics'
   | 'profile'
   | 'admin_users';

@@ -21,7 +21,7 @@ const navItems: NavItem[] = [
   { href: '/', icon: Home, label: 'Dashboard', pageKeys: ['dashboard'] },
   { href: '/barangays', icon: Landmark, label: 'Barangays', pageKeys: ['barangays_list'] },
   { href: '/organization', icon: Briefcase, label: 'Organization', pageKeys: ['organization_orgMembers', 'organization_departments', 'organization_positions'] },
-  { href: '/assistance', icon: HeartHandshake, label: 'Projects', pageKeys: ['assistance_projects'] },
+  { href: '/projects', icon: HeartHandshake, label: 'Projects', pageKeys: ['projects'] },
   { href: '/analytics', icon: LineChart, label: 'Analytics', pageKeys: ['analytics'] },
 ];
 

@@ -12,19 +12,19 @@ const projectTypes = [
     {
         title: 'Medical Projects',
         description: 'Manage medical missions, distribution of medicines, and health services.',
-        href: '/assistance/medical',
+        href: '/projects/medical',
         icon: HeartPulse
     },
     {
         title: 'Educational Projects',
         description: 'Oversee scholarship programs, school supply distribution, and educational workshops.',
-        href: '/assistance/educational',
+        href: '/projects/educational',
         icon: GraduationCap
     },
     {
         title: 'Infrastructure Projects',
         description: 'Track and manage local infrastructure projects like road repairs and building constructions.',
-        href: '/assistance/infrastructure',
+        href: '/projects/infrastructure',
         icon: Building
     }
 ]
@@ -45,7 +45,7 @@ function AccessDenied() {
 export default function RSRProjectsPage() {
   const { userProfile } = useAuth();
   
-  if (!canViewPage(userProfile, 'assistance_projects')) {
+  if (!canViewPage(userProfile, 'projects')) {
     return <AccessDenied />;
   }
   
