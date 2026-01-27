@@ -66,7 +66,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       setUser(firebaseUser);
 
-      // ✅ Custom claim is the source of truth
+      // Custom claim is the source of truth for admin status
       const token = await firebaseUser.getIdTokenResult(true);
       const isAdmin = token?.claims?.platformAdmin === true;
       setIsPlatformAdminClaim(isAdmin);
@@ -74,38 +74,51 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const userRef = doc(db, 'users', firebaseUser.uid);
       const docSnap = await getDoc(userRef);
 
-      // ✅ Only Platform Admin can auto-provision user profile (matches deployed rules)
-      if (!docSnap.exists() && isAdmin) {
+      // If a user is authenticated but has no profile in the DB, create one.
+      // This ensures the auth user is always matched with a DB record.
+      if (!docSnap.exists()) {
+        const isFirstAdmin = isAdmin;
+        
         const newUserProfile: Omit<UserProfile, 'roles' | 'permissions'> = {
           uid: firebaseUser.uid,
           email: firebaseUser.email,
-          displayName: firebaseUser.displayName || 'Platform Admin',
-          photoURL: firebaseUser.photoURL || null,
-          isActive: true,
-          departmentId: 'admin',
-          positionId: 'platformAdmin',
-          access: platformAdminAccess,
+          displayName: firebaseUser.displayName,
+          photoURL: firebaseUser.photoURL,
+          // Admins are active by default, others must be enabled by an admin.
+          isActive: isFirstAdmin, 
+          // Admins get full access, others start with restricted access.
+          access: isFirstAdmin ? platformAdminAccess : defaultAccess,
+          departmentId: isFirstAdmin ? 'admin' : undefined,
+          positionId: isFirstAdmin ? 'platformAdmin' : undefined,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
+        
+        // This write is allowed by the updated security rule.
         await setDoc(userRef, newUserProfile);
       }
-
-      // ✅ Optional: Platform Admin can apply migration defaults
+      
+      // For existing admins, ensure their permissions are up-to-date as a safety net.
       if (docSnap.exists() && isAdmin) {
-        const existingData = docSnap.data() as UserProfile;
-        if (!existingData.access) {
-          await setDoc(
-            userRef,
-            { access: defaultAccess, updatedAt: serverTimestamp() },
-            { merge: true }
-          );
+        const profileData = docSnap.data() as UserProfile;
+        if (profileData.positionId !== 'platformAdmin' || !profileData.access.pages.admin_users) {
+            await setDoc(userRef, { 
+                isActive: true,
+                positionId: 'platformAdmin', 
+                departmentId: 'admin',
+                access: platformAdminAccess,
+                updatedAt: serverTimestamp()
+            }, { merge: true });
         }
       }
 
       unsubProfile = onSnapshot(userRef, (snapshot) => {
-        if (snapshot.exists()) setUserProfile(snapshot.data() as UserProfile);
-        else setUserProfile(null);
+        if (snapshot.exists()) {
+          setUserProfile(snapshot.data() as UserProfile);
+        } else {
+          // This case is now unlikely for an authenticated user, but handled just in case.
+          setUserProfile(null);
+        }
         setLoading(false);
       });
     });

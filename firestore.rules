@@ -34,9 +34,13 @@ service cloud.firestore {
       // Users can read their own profile; Platform Admin already bypasses above.
       allow read: if signedIn() && request.auth.uid == uid;
 
-      // Only Platform Admin can create/update user profiles to prevent privilege escalation.
-      // (If you later want self-edit for some fields, we can add a safe allowlist.)
-      allow create, update, delete: if false;
+      // Allow users to create their own profile upon first sign-in.
+      // The client-side logic ensures they are created as 'inactive' with restricted permissions.
+      allow create: if request.auth.uid == uid;
+
+      // Only Platform Admin can update/delete user profiles (covered by bypass).
+      // Self-edits for displayName/photoURL are handled by server actions that check UID.
+      allow update, delete: if false;
     }
 
     // -------- Org metadata (departments/positions) --------
