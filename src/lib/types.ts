@@ -144,6 +144,7 @@ export interface Department {
   id: string;
   name: string;
   description?: string;
+  pageVisibility?: Partial<Record<PageKey, boolean>>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -151,6 +152,7 @@ export interface Department {
 export interface DepartmentListItem {
   name: string;
   description?: string;
+  pageVisibility?: Partial<Record<PageKey, boolean>>;
 }
 
 export interface DepartmentListDoc {

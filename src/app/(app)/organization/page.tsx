@@ -58,6 +58,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import DepartmentEditDialog from './_components/department-edit-dialog';
 
 
 // --- Department Form ---
@@ -206,6 +207,8 @@ function DeleteDepartmentAlert({ department, children, onSuccess }: { department
 
 // --- Departments Tab ---
 function DepartmentsTab({ departments, loading, canWrite, canDel }: { departments: Department[], loading: boolean, canWrite: boolean, canDel: boolean }) {
+  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
+
   const departmentColumns: ColumnDef<Department>[] = [
     { accessorKey: 'name', header: 'Name' },
     { accessorKey: 'description', header: 'Description', cell: ({row}) => <p className='line-clamp-2 text-muted-foreground text-xs'>{row.original.description || 'N/A'}</p> },
@@ -222,9 +225,7 @@ function DepartmentsTab({ departments, loading, canWrite, canDel }: { department
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <DepartmentFormDialog department={department}>
-                <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-              </DepartmentFormDialog>
+              <DropdownMenuItem onSelect={() => setEditingDepartment(department)}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
               {canDel && <>
                 <DropdownMenuSeparator />
                 <DeleteDepartmentAlert department={department}>
@@ -252,6 +253,12 @@ function DepartmentsTab({ departments, loading, canWrite, canDel }: { department
     )
   }
 
+  const handleRowClick = (department: Department) => {
+    if (canWrite) {
+      setEditingDepartment(department);
+    }
+  };
+
   return (
     <div>
         <div className="flex justify-end py-4">
@@ -261,7 +268,8 @@ function DepartmentsTab({ departments, loading, canWrite, canDel }: { department
             </DepartmentFormDialog>
             )}
         </div>
-        <DataTable columns={departmentColumns} data={departments} filterColumnId="name" filterPlaceholder="Filter departments..." />
+        <DataTable columns={departmentColumns} data={departments} filterColumnId="name" filterPlaceholder="Filter departments..." onRowClick={handleRowClick} />
+        {canWrite && <DepartmentEditDialog department={editingDepartment} isOpen={!!editingDepartment} onOpenChange={() => setEditingDepartment(null)} />}
     </div>
   );
 }

@@ -21,12 +21,14 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
   filterColumnId: string;
   filterPlaceholder: string;
+  onRowClick?: (row: TData) => void;
 }
 
 export function DataTable<TData, TValue>({
@@ -34,6 +36,7 @@ export function DataTable<TData, TValue>({
   data,
   filterColumnId,
   filterPlaceholder,
+  onRowClick,
 }: DataTableProps<TData, TValue>) {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 
@@ -87,11 +90,20 @@ export function DataTable<TData, TValue>({
                 <TableRow
                     key={row.id}
                     data-state={row.getIsSelected() && 'selected'}
+                    onClick={() => onRowClick?.(row.original)}
+                    className={cn(onRowClick && "cursor-pointer")}
                 >
                     {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                      <TableCell
+                        key={cell.id}
+                        onClick={(e) => {
+                          if (cell.column.id === 'actions') {
+                            e.stopPropagation();
+                          }
+                        }}
+                      >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
+                      </TableCell>
                     ))}
                 </TableRow>
                 ))

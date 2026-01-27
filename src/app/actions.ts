@@ -370,7 +370,12 @@ export async function addDepartment(data: AddDepartmentData, actor: Actor) {
         });
 
         const listDocRef = doc(db, 'lists', 'departments');
-        batch.set(listDocRef, { departments: { [newDeptRef.id]: { name: data.name, description: data.description || '' } } }, { merge: true });
+        const listItemData = { 
+            name: data.name, 
+            description: data.description || '',
+            pageVisibility: data.pageVisibility || {}
+        };
+        batch.set(listDocRef, { departments: { [newDeptRef.id]: listItemData } }, { merge: true });
         
         await logAudit({
             actorUid: actor.uid,
@@ -398,7 +403,11 @@ export async function updateDepartment(id: string, data: Partial<Omit<Department
         const listUpdateData: Record<string, any> = {};
         if (data.name !== undefined) listUpdateData[`departments.${id}.name`] = data.name;
         if (data.description !== undefined) listUpdateData[`departments.${id}.description`] = data.description;
-        batch.update(listDocRef, listUpdateData);
+        if (data.pageVisibility !== undefined) listUpdateData[`departments.${id}.pageVisibility`] = data.pageVisibility;
+
+        if (Object.keys(listUpdateData).length > 0) {
+            batch.update(listDocRef, listUpdateData);
+        }
 
         await logAudit({
             actorUid: actor.uid,
