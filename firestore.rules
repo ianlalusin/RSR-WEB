@@ -28,6 +28,12 @@ service cloud.firestore {
     match /{docPath=**} {
       allow read, write: if isPlatformAdmin();
     }
+    
+    // -------- Lists --------
+    match /lists/{listId} {
+      allow read: if signedIn();
+      allow write: if false; // Writes are admin-only via bypass
+    }
 
     // -------- Users --------
     match /users/{uid} {
@@ -44,15 +50,18 @@ service cloud.firestore {
     }
 
     // -------- Org metadata (departments/positions) --------
-    // Keep readable for authenticated users, write locked to Platform Admin (bypass already covers admin).
-    match /org/departments/{deptId} {
-      allow read: if signedIn();
-      allow write: if false;
+    // DEPRECATED in favor of /lists/{listId} docs. Lock them down.
+    match /departments/{deptId} {
+      allow read, write: if false;
     }
-
+    match /positions/{posId} {
+      allow read, write: if false;
+    }
+    match /org/departments/{deptId} {
+      allow read, write: if false;
+    }
     match /org/positions/{posId} {
-      allow read: if signedIn();
-      allow write: if false;
+      allow read, write: if false;
     }
 
     // -------- Field data (district-scoped) --------

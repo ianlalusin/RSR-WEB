@@ -538,15 +538,8 @@ export default function OrganizationPage() {
                 const depts = Object.entries(listData.departments || {}).map(([id, data]) => ({ id, ...data } as Department));
                 setDepartments(depts.sort((a,b) => a.name.localeCompare(b.name)));
             } else {
-                console.log("Departments list document not found. Generating from collection...");
-                const deptCollection = collection(db, 'departments');
-                const deptSnapshot = await getDocs(query(deptCollection));
-                const listUpdates: Record<string, any> = {};
-                deptSnapshot.forEach(doc => {
-                    const data = doc.data();
-                    listUpdates[doc.id] = { name: data.name, description: data.description || '' };
-                });
-                await setDoc(deptListRef, { departments: listUpdates });
+                console.log("Departments list document not found. Creating it...");
+                await setDoc(deptListRef, { departments: {} });
             }
         });
     }
@@ -559,14 +552,8 @@ export default function OrganizationPage() {
                 const pos = Object.entries(listData.positions || {}).map(([id, data]) => ({ id, ...data } as Position));
                 setPositions(pos.sort((a,b) => a.name.localeCompare(b.name)));
             } else {
-                console.log("Positions list document not found. Generating from collection...");
-                const posCollection = collection(db, 'positions');
-                const posSnapshot = await getDocs(query(posCollection));
-                const listUpdates: Record<string, any> = {};
-                posSnapshot.forEach(doc => {
-                    listUpdates[doc.id] = { name: doc.data().name };
-                });
-                await setDoc(posListRef, { positions: listUpdates });
+                console.log("Positions list document not found. Creating it...");
+                await setDoc(posListRef, { positions: {} });
             }
         });
     }

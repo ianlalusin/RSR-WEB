@@ -153,6 +153,8 @@ export interface DepartmentListItem {
   name: string;
   description?: string;
   pageVisibility?: Partial<Record<PageKey, boolean>>;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface DepartmentListDoc {
@@ -169,6 +171,8 @@ export interface Position {
 
 export interface PositionListItem {
     name: string;
+    createdAt: Timestamp;
+    updatedAt: Timestamp;
 }
 
 export interface PositionListDoc {
