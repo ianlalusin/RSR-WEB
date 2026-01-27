@@ -97,20 +97,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         // This write is allowed by the updated security rule.
         await setDoc(userRef, newUserProfile);
       }
-      
-      // For existing admins, ensure their permissions are up-to-date as a safety net.
-      if (docSnap.exists() && isAdmin) {
-        const profileData = docSnap.data() as UserProfile;
-        if (profileData.positionId !== 'platformAdmin' || !profileData.access.pages.admin_users) {
-            await setDoc(userRef, { 
-                isActive: true,
-                positionId: 'platformAdmin', 
-                departmentId: 'admin',
-                access: platformAdminAccess,
-                updatedAt: serverTimestamp()
-            }, { merge: true });
-        }
-      }
 
       unsubProfile = onSnapshot(userRef, (snapshot) => {
         if (snapshot.exists()) {
