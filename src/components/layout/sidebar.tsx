@@ -19,7 +19,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: '/', icon: Home, label: 'Dashboard', pageKey: 'dashboard' },
   { href: '/barangays', icon: Landmark, label: 'Barangays', pageKey: 'barangays_list' },
-  { href: '/organization', icon: Briefcase, label: 'Organization', pageKey: 'organization_orgMembers' },
+  { href: '/coordinators', icon: Briefcase, label: 'Organization', pageKey: 'organization_orgMembers' },
   { href: '/assistance', icon: HeartHandshake, label: 'Projects', pageKey: 'assistance_projects' },
   { href: '/analytics', icon: LineChart, label: 'Analytics', pageKey: 'analytics' },
 ];
