@@ -143,7 +143,8 @@ export default function UserAccessEditDialog({
     }
     
     try {
-      const result = await updateUserAccess(user.uid, payload, actor, originalData);
+      const actorPayload = { uid: actor.uid, email: actor.email };
+      const result = await updateUserAccess(user.uid, payload, actorPayload, originalData);
       if (result.success) {
         toast({
           title: `User updated`,
