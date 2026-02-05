@@ -15,24 +15,28 @@ export const ALL_PAGE_KEYS: PageKey[] = [
   'admin_users',
 ];
 
+// --- Default Access for new users ---
+const defaultPages: Partial<Record<PageKey, { level: AccessLevel }>> = {};
+for (const key of ALL_PAGE_KEYS) {
+  if (key === 'dashboard' || key === 'profile') {
+    defaultPages[key] = { level: 'readonly' };
+  } else {
+    defaultPages[key] = { level: 'restricted' };
+  }
+}
 export const defaultAccess = {
-  pages: ALL_PAGE_KEYS.reduce((acc, key) => {
-    if (key === 'dashboard' || key === 'profile') {
-      acc[key] = { level: 'readonly' as AccessLevel };
-    } else {
-      acc[key] = { level: 'restricted' as AccessLevel };
-    }
-    return acc;
-  }, {} as Record<PageKey, { level: AccessLevel }>),
+  pages: defaultPages,
   districtIds: [],
 };
 
-// Platform admin gets full everywhere in-app (UI). Firestore rules will also bypass via claim.
+
+// --- Platform admin gets full everywhere in-app (UI). Firestore rules will also bypass via claim. ---
+const adminPages: Partial<Record<PageKey, { level: AccessLevel }>> = {};
+for (const key of ALL_PAGE_KEYS) {
+  adminPages[key] = { level: 'full' };
+}
 export const platformAdminAccess = {
-  pages: ALL_PAGE_KEYS.reduce((acc, key) => {
-    acc[key] = { level: 'full' as AccessLevel };
-    return acc;
-  }, {} as Record<PageKey, { level: AccessLevel }>),
+  pages: adminPages,
   districtIds: [],
 };
 
