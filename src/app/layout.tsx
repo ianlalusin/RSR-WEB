@@ -5,7 +5,6 @@ import { RootProviders } from '@/components/providers/root-providers';
 export const metadata: Metadata = {
   title: 'RSR Web',
   description: 'RSR Web Application',
-  manifest: '/manifest.json',
 };
 
 export default function RootLayout({
