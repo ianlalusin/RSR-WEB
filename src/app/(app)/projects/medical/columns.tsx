@@ -15,10 +15,20 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canDo } from '@/lib/access';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
 import DeleteMedicalAlert from './_components/delete-medical-alert';
 import MedicalFormDialog from './_components/medical-form-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+
+const formatDateSafely = (date: any): string => {
+    if (!date) return 'N/A';
+    // Handle Firestore Timestamps, strings, or JS Date objects
+    const jsDate = date.toDate ? date.toDate() : new Date(date);
+    if (!isValid(jsDate)) {
+        return 'Invalid Date';
+    }
+    return format(jsDate, 'PPP');
+}
 
 export const columns: ColumnDef<MedicalRecord>[] = [
   {
@@ -63,7 +73,7 @@ export const columns: ColumnDef<MedicalRecord>[] = [
     header: 'Event Date',
     cell: ({ row }) => {
       const date = row.getValue('eventDate') as any;
-      return date ? format(date.toDate(), 'PPP') : 'N/A';
+      return formatDateSafely(date);
     },
   },
   {
@@ -71,7 +81,7 @@ export const columns: ColumnDef<MedicalRecord>[] = [
     header: 'Coordinator',
     cell: ({ row }) => {
         const details = row.original.referralDetails;
-        if (!details) return <span className="text-muted-foreground">N/A</span>;
+        if (!details?.coordinatorName) return <span className="text-muted-foreground">N/A</span>;
         
         return (
             <TooltipProvider>
@@ -80,8 +90,8 @@ export const columns: ColumnDef<MedicalRecord>[] = [
                         <span className="underline cursor-pointer">{details.coordinatorName}</span>
                     </TooltipTrigger>
                     <TooltipContent>
-                        <p>Referred: {format(details.dateReferred.toDate(), 'PPP')}</p>
-                        <p>Approved: {format(details.dateApproved.toDate(), 'PPP')}</p>
+                        {details.dateReferred && <p>Referred: {formatDateSafely(details.dateReferred)}</p>}
+                        {details.dateApproved && <p>Approved: {formatDateSafely(details.dateApproved)}</p>}
                     </TooltipContent>
                 </Tooltip>
             </TooltipProvider>
