@@ -502,20 +502,21 @@ function AccessDenied() {
 
 // --- Main Page Component ---
 export default function OrganizationPage() {
-  const { userProfile } = useAuth();
+  const { userProfile, isPlatformAdminClaim } = useAuth();
   
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canViewMembers = canViewPage(userProfile, 'organization_orgMembers');
-  const canViewDepts = canViewPage(userProfile, 'organization_departments');
-  const canViewRoles = canViewPage(userProfile, 'organization_roles');
-  const canWriteDepts = canDo(userProfile, 'organization_departments', 'update');
-  const canDelDepts = canDo(userProfile, 'organization_departments', 'delete');
-  const canWriteRoles = canDo(userProfile, 'organization_roles', 'update');
-  const canDelRoles = canDo(userProfile, 'organization_roles', 'delete');
+  const authOpts = { isPlatformAdminClaim };
+  const canViewMembers = canViewPage(userProfile, 'organization_orgMembers', authOpts);
+  const canViewDepts = canViewPage(userProfile, 'organization_departments', authOpts);
+  const canViewRoles = canViewPage(userProfile, 'organization_roles', authOpts);
+  const canWriteDepts = canDo(userProfile, 'organization_departments', 'update', authOpts);
+  const canDelDepts = canDo(userProfile, 'organization_departments', 'delete', authOpts);
+  const canWriteRoles = canDo(userProfile, 'organization_roles', 'update', authOpts);
+  const canDelRoles = canDo(userProfile, 'organization_roles', 'delete', authOpts);
 
   useEffect(() => {
     let userUnsub: () => void = () => {};
