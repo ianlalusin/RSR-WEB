@@ -62,8 +62,8 @@ export function canViewPage(
   // hard-gate admin users page: only platform admin
   if (page === 'admin_users') return isPlatformAdmin(u, opts?.isPlatformAdminClaim);
 
-  // safe defaults for users with no access configured yet
-  if (!u.access?.pages) {
+  // safe defaults for users with no access configured yet, or with malformed data
+  if (!u.access?.pages || typeof u.access.pages !== 'object' || Array.isArray(u.access.pages)) {
     return page === 'dashboard' || page === 'profile';
   }
 
@@ -86,8 +86,13 @@ export function canDo(
 
   // hard-gate admin actions page
   if (page === 'admin_users') return isPlatformAdmin(u, opts?.isPlatformAdminClaim);
+  
+  // More robust check for malformed pages object
+  if (!u.access?.pages || typeof u.access.pages !== 'object' || Array.isArray(u.access.pages)) {
+    return false;
+  }
 
-  const level = u.access?.pages?.[page]?.level ?? 'restricted';
+  const level = u.access.pages?.[page]?.level ?? 'restricted';
 
   if (level === 'full') return true;
   if (level === 'readwrite') return action !== 'delete';
