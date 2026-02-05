@@ -3,7 +3,7 @@
 import { ColumnDef } from '@tanstack/react-table';
 import { MedicalRecord } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
-import { MoreHorizontal, Trash2, Edit } from 'lucide-react';
+import { ArrowUpDown, MoreHorizontal, Trash2, Edit } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -19,6 +19,7 @@ import { format, isValid } from 'date-fns';
 import DeleteMedicalAlert from './_components/delete-medical-alert';
 import MedicalFormDialog from './_components/medical-form-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import Link from 'next/link';
 
 const formatDateSafely = (date: any): string => {
     if (!date) return 'N/A';
@@ -45,11 +46,19 @@ export const columns: ColumnDef<MedicalRecord>[] = [
   },
   {
     accessorKey: 'districtName',
-    header: 'District',
+    header: ({ column }) => (
+        <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            District <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+    ),
   },
   {
     accessorKey: 'brgyName',
-    header: 'Barangay',
+    header: ({ column }) => (
+        <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Barangay <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+    ),
   },
   {
     accessorKey: 'fullName',
@@ -70,7 +79,11 @@ export const columns: ColumnDef<MedicalRecord>[] = [
   },
    {
     accessorKey: 'eventDate',
-    header: 'Event Date',
+    header: ({ column }) => (
+        <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Event Date <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+    ),
     cell: ({ row }) => {
       const date = row.getValue('eventDate') as any;
       return formatDateSafely(date);
@@ -116,7 +129,9 @@ export const columns: ColumnDef<MedicalRecord>[] = [
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuItem>View Details</DropdownMenuItem>
+            <Link href={`/projects/medical/${record.id}`} passHref>
+                <DropdownMenuItem>View Details</DropdownMenuItem>
+            </Link>
             {canEdit && (
                 <MedicalFormDialog record={record}>
                     <DropdownMenuItem onSelect={(e) => e.preventDefault()}>

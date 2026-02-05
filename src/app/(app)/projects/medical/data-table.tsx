@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ColumnDef,
   flexRender,
@@ -23,6 +24,7 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { MedicalRecord } from '@/lib/types';
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -33,7 +35,10 @@ export function DataTable<TData, TValue>({
   columns,
   data,
 }: DataTableProps<TData, TValue>) {
-    const [sorting, setSorting] = useState<SortingState>([])
+    const router = useRouter();
+    const [sorting, setSorting] = useState<SortingState>([
+        { id: 'eventDate', desc: true }
+    ])
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 
   const table = useReactTable({
@@ -89,6 +94,11 @@ export function DataTable<TData, TValue>({
                 <TableRow
                     key={row.id}
                     data-state={row.getIsSelected() && 'selected'}
+                    className="cursor-pointer"
+                    onClick={() => {
+                        const record = row.original as MedicalRecord;
+                        router.push(`/projects/medical/${record.id}`);
+                    }}
                 >
                     {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id} onClick={(e) => {
