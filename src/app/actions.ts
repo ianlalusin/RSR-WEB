@@ -5,7 +5,7 @@ import {
   type GenerateBarangayProfilesInput,
 } from '@/ai/flows/generate-barangay-profiles';
 import { db } from '@/lib/firebase';
-import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department, Role, MedicalRecord } from '@/lib/types';
+import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department, Role, MedicalRecord, Hospital } from '@/lib/types';
 import { logAudit } from '@/lib/audit';
 import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch, deleteField, setDoc } from 'firebase/firestore';
 
@@ -580,6 +580,46 @@ export async function deleteMedicalRecord(id: string, actor: Actor) {
             entityId: id,
         });
 
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+type AddHospitalData = Omit<Hospital, 'id' | 'createdAt' | 'updatedAt'>;
+
+export async function addHospital(data: AddHospitalData, actor: Actor) {
+    try {
+        const newId = doc(collection(db, 'dummy')).id;
+        const listDocRef = doc(db, 'lists', 'hospitals');
+        const newItemData = { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+        await setDoc(listDocRef, { hospitals: { [newId]: newItemData } }, { merge: true });
+        await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'create', entityType: 'hospital', entityId: newId, details: data });
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateHospital(id: string, data: Partial<Omit<Hospital, 'id' | 'createdAt' | 'updatedAt'>>, actor: Actor) {
+    try {
+        const listDocRef = doc(db, 'lists', 'hospitals');
+        const updatePayload: Record<string, any> = { [`hospitals.${id}.updatedAt`]: serverTimestamp() };
+        if (data.name !== undefined) updatePayload[`hospitals.${id}.name`] = data.name;
+        if (data.address !== undefined) updatePayload[`hospitals.${id}.address`] = data.address;
+        await updateDoc(listDocRef, updatePayload);
+        await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'update', entityType: 'hospital', entityId: id, details: data });
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteHospital(id: string, actor: Actor) {
+    try {
+        const listDocRef = doc(db, 'lists', 'hospitals');
+        await updateDoc(listDocRef, { [`hospitals.${id}`]: deleteField() });
+        await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'delete', entityType: 'hospital', entityId: id });
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };

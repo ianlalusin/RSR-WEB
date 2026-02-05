@@ -24,6 +24,7 @@ export type PageKey =
   | 'organization_roles'
   | 'projects'
   | 'projects_medical'
+  | 'projects_hospitals'
   | 'analytics'
   | 'profile'
   | 'admin_users';
@@ -214,7 +215,7 @@ export interface AnalyticsData {
 }
 
 export type AuditLogAction = 'access_update' | 'create' | 'update' | 'delete' | 'bulk_update' | 'generate_ai_profile';
-export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'medicalRecord' | 'department' | 'role' | 'system';
+export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'medicalRecord' | 'department' | 'role' | 'hospital' | 'system';
 
 export interface AuditLog {
     id?: string;
@@ -247,6 +248,9 @@ export interface MedicalRecord {
   
   // Medical Assistance fields
   fullName?: string;
+  contact?: string;
+  address?: string;
+  birthday?: string;
   householdSize?: number;
   hospital?: string;
   assistanceType?: MedicalAssistanceType;
@@ -261,4 +265,24 @@ export interface MedicalRecord {
   createdAt: Timestamp;
   updatedAt: Timestamp;
   createdByUid: string;
+}
+
+
+export interface Hospital {
+  id: string;
+  name: string;
+  address?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface HospitalListItem {
+  name: string;
+  address?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface HospitalListDoc {
+  hospitals: Record<string, HospitalListItem>;
 }
