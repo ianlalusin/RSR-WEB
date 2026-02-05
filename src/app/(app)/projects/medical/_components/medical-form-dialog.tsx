@@ -118,15 +118,31 @@ export default function MedicalFormDialog({ record, children, onSuccess }: Props
 
   useEffect(() => {
     if (record) {
+      const toInputDate = (date: any): string => {
+        if (!date) return '';
+        const jsDate = date.toDate ? date.toDate() : new Date(date);
+        if (isNaN(jsDate.getTime())) {
+          return '';
+        }
+        return jsDate.toISOString().split('T')[0];
+      };
+
       form.reset({
         ...record,
-        eventDate: record.eventDate.toDate().toISOString().split('T')[0],
-        dateReferred: record.referralDetails?.dateReferred?.toDate().toISOString().split('T')[0] || '',
-        dateApproved: record.referralDetails?.dateApproved?.toDate().toISOString().split('T')[0] || '',
+        eventDate: toInputDate(record.eventDate),
+        dateReferred: toInputDate(record.referralDetails?.dateReferred),
+        dateApproved: toInputDate(record.referralDetails?.dateApproved),
+        birthday: toInputDate(record.birthday),
         contact: record.contact || '',
         address: record.address || '',
-        birthday: record.birthday || '',
         householdSize: record.householdSize || 0,
+        title: record.title || '',
+        description: record.description || '',
+        beneficiaryCount: record.beneficiaryCount || 0,
+        fullName: record.fullName || '',
+        hospital: record.hospital || '',
+        coordinatorId: record.referralDetails?.coordinatorId || '',
+        coordinatorName: record.referralDetails?.coordinatorName || '',
       });
     }
   }, [record, form]);
