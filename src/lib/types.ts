@@ -23,6 +23,7 @@ export type PageKey =
   | 'organization_departments'
   | 'organization_roles'
   | 'projects'
+  | 'projects_medical'
   | 'analytics'
   | 'profile'
   | 'admin_users';
@@ -213,7 +214,7 @@ export interface AnalyticsData {
 }
 
 export type AuditLogAction = 'access_update' | 'create' | 'update' | 'delete' | 'bulk_update' | 'generate_ai_profile';
-export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'department' | 'role' | 'system';
+export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'medicalRecord' | 'department' | 'role' | 'system';
 
 export interface AuditLog {
     id?: string;
@@ -225,4 +226,39 @@ export interface AuditLog {
     districtId?: string;
     details?: any;
     timestamp: Timestamp;
+}
+
+export type MedicalProjectType = 'medical_drive' | 'medical_assistance';
+export type MedicalAssistanceType = 'operation' | 'checkup' | 'dental' | 'medicine' | 'other';
+
+export interface MedicalRecord {
+  id: string;
+  projectId: string;
+  projectType: MedicalProjectType;
+  districtId: string;
+  districtName: string;
+  brgyId: string;
+  brgyName: string;
+  
+  // Medical Drive fields
+  title?: string;
+  description?: string;
+  beneficiaryCount?: number;
+  
+  // Medical Assistance fields
+  fullName?: string;
+  householdSize?: number;
+  hospital?: string;
+  assistanceType?: MedicalAssistanceType;
+  referralDetails?: {
+    coordinatorId: string;
+    coordinatorName: string;
+    dateReferred: Timestamp;
+    dateApproved: Timestamp;
+  };
+  
+  eventDate: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdByUid: string;
 }

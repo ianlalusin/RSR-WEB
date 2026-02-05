@@ -70,6 +70,12 @@ service cloud.firestore {
       allow read, write: if hasDistrict(districtId);
     }
 
+    // -------- Medical Records --------
+    match /medicalRecords/{recordId} {
+        allow read, write: if hasDistrict(request.resource.data.districtId);
+        allow create: if isActiveUser();
+    }
+
     // -------- Audit logs --------
     match /auditLogs/{logId} {
       // Platform Admin bypass covers full access.

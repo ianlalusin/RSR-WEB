@@ -62,6 +62,7 @@ const PAGE_LABELS: Record<PageKey, string> = {
   organization_departments: 'Organization - Departments',
   organization_roles: 'Organization - Roles',
   projects: 'Projects',
+  projects_medical: 'Projects - Medical',
   analytics: 'Analytics',
   profile: 'User Profile',
   admin_users: 'Admin - User Management',

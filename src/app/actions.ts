@@ -5,7 +5,7 @@ import {
   type GenerateBarangayProfilesInput,
 } from '@/ai/flows/generate-barangay-profiles';
 import { db } from '@/lib/firebase';
-import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department, Role } from '@/lib/types';
+import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department, Role, MedicalRecord } from '@/lib/types';
 import { logAudit } from '@/lib/audit';
 import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch, deleteField, setDoc } from 'firebase/firestore';
 
@@ -502,6 +502,81 @@ export async function deleteRole(id: string, actor: Actor) {
             actorEmail: actor.email,
             action: 'delete',
             entityType: 'role',
+            entityId: id,
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+type AddMedicalRecordData = Omit<MedicalRecord, 'id' | 'createdAt' | 'updatedAt' | 'createdByUid' | 'projectId'>;
+
+export async function addMedicalRecord(data: AddMedicalRecordData, actor: Actor) {
+    try {
+        const newRecordRef = doc(collection(db, 'medicalRecords'));
+        
+        const projectId = `MED-${newRecordRef.id.substring(0, 8).toUpperCase()}`;
+
+        await setDoc(newRecordRef, {
+             ...data,
+            projectId,
+            createdByUid: actor.uid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        });
+        
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'create',
+            entityType: 'medicalRecord',
+            entityId: newRecordRef.id,
+            districtId: data.districtId,
+            details: data,
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function updateMedicalRecord(id: string, data: Partial<Omit<MedicalRecord, 'id'>>, actor: Actor) {
+    try {
+        const recordDoc = doc(db, 'medicalRecords', id);
+        await updateDoc(recordDoc, {
+            ...data,
+            updatedAt: serverTimestamp(),
+        });
+
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'update',
+            entityType: 'medicalRecord',
+            entityId: id,
+            districtId: data.districtId,
+            details: data,
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function deleteMedicalRecord(id: string, actor: Actor) {
+    try {
+        const recordDoc = doc(db, 'medicalRecords', id);
+        await deleteDoc(recordDoc);
+
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'delete',
+            entityType: 'medicalRecord',
             entityId: id,
         });
 

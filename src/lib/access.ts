@@ -10,6 +10,7 @@ export const ALL_PAGE_KEYS: PageKey[] = [
   'organization_departments',
   'organization_roles',
   'projects',
+  'projects_medical',
   'analytics',
   'profile',
   'admin_users',
