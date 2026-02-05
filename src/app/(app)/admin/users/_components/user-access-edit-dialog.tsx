@@ -67,7 +67,7 @@ const PAGE_LABELS: Record<PageKey, string> = {
   admin_users: 'Admin - User Management',
 };
 
-const ACCESS_LEVELS: AccessLevel[] = ['restricted', 'readonly', 'readwrite', 'full'];
+const ACCESS_LEVELS: [AccessLevel, ...AccessLevel[]] = ['restricted', 'readonly', 'readwrite', 'full'];
 
 const formSchema = z.object({
   isActive: z.boolean(),
@@ -75,7 +75,7 @@ const formSchema = z.object({
   roleId: z.string().optional(),
   access: z.object({
     districtIds: z.array(z.string()).default([]),
-    pages: z.record(z.nativeEnum(AccessLevel)),
+    pages: z.record(z.enum(ACCESS_LEVELS)),
   }),
 });
 
