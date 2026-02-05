@@ -100,7 +100,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       unsubProfile = onSnapshot(userRef, (snapshot) => {
         if (snapshot.exists()) {
-          setUserProfile(snapshot.data() as UserProfile);
+          const profileData = snapshot.data() as UserProfile;
+
+          // Data Sanitization: Check for malformed access object, which is the likely cause of crashes.
+          // This provides an in-memory "migration" for users with old/bad data structure in Firestore.
+          if (!profileData.access || typeof profileData.access !== 'object' || Array.isArray(profileData.access) || !profileData.access.pages || typeof profileData.access.pages !== 'object' || Array.isArray(profileData.access.pages)) {
+            console.warn("User profile has malformed 'access' property. Applying default permissions.", profileData.uid);
+            profileData.access = defaultAccess; 
+          }
+          
+          // Ensure districtIds is always an array
+          if (!Array.isArray(profileData.access.districtIds)) {
+            profileData.access.districtIds = [];
+          }
+          
+          setUserProfile(profileData);
         } else {
           // This case is now unlikely for an authenticated user, but handled just in case.
           setUserProfile(null);
