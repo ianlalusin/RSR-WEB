@@ -92,8 +92,8 @@ export default function MedicalFormDialog({ record, children, onSuccess }: Props
     defaultValues: record ? {
         ...record,
         eventDate: record.eventDate.toDate().toISOString().split('T')[0],
-        dateReferred: record.referralDetails?.dateReferred.toDate().toISOString().split('T')[0],
-        dateApproved: record.referralDetails?.dateApproved.toDate().toISOString().split('T')[0],
+        dateReferred: record.referralDetails?.dateReferred?.toDate().toISOString().split('T')[0],
+        dateApproved: record.referralDetails?.dateApproved?.toDate().toISOString().split('T')[0],
     } : {
       projectType: 'medical_assistance',
     },
@@ -175,17 +175,17 @@ export default function MedicalFormDialog({ record, children, onSuccess }: Props
 
                 {projectType === 'medical_drive' && (
                     <div className='space-y-4 p-4 border rounded-lg animate-in fade-in'>
-                        <FormField control={form.control} name="title" render={({ field }) => ( <FormItem><FormLabel>Drive Title</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                        <FormField control={form.control} name="description" render={({ field }) => ( <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="title" render={({ field }) => ( <FormItem><FormLabel>Drive Title</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="description" render={({ field }) => ( <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                         <FormField control={form.control} name="beneficiaryCount" render={({ field }) => ( <FormItem><FormLabel>Beneficiary Count</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )} />
                     </div>
                 )}
                 
                 {projectType === 'medical_assistance' && (
                     <div className='space-y-4 p-4 border rounded-lg animate-in fade-in'>
-                        <FormField control={form.control} name="fullName" render={({ field }) => ( <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="fullName" render={({ field }) => ( <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                         <FormField control={form.control} name="householdSize" render={({ field }) => ( <FormItem><FormLabel>Household Size</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                        <FormField control={form.control} name="hospital" render={({ field }) => ( <FormItem><FormLabel>Hospital</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="hospital" render={({ field }) => ( <FormItem><FormLabel>Hospital</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                         <FormField control={form.control} name="assistanceType" render={({ field }) => (
                             <FormItem>
                             <FormLabel>Assistance Type</FormLabel>
@@ -205,21 +205,21 @@ export default function MedicalFormDialog({ record, children, onSuccess }: Props
                     <h3 className="font-semibold text-md">Location & Date</h3>
                     <div className="grid grid-cols-2 gap-4">
                         {/* In a real app, these would be dynamic selects */}
-                        <FormField control={form.control} name="districtName" render={({ field }) => ( <FormItem><FormLabel>District</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-                        <FormField control={form.control} name="brgyName" render={({ field }) => ( <FormItem><FormLabel>Barangay</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="districtName" render={({ field }) => ( <FormItem><FormLabel>District</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={form.control} name="brgyName" render={({ field }) => ( <FormItem><FormLabel>Barangay</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                     </div>
-                    <FormField control={form.control} name="eventDate" render={({ field }) => ( <FormItem><FormLabel>Event Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                    <FormField control={form.control} name="eventDate" render={({ field }) => ( <FormItem><FormLabel>Event Date</FormLabel><FormControl><Input type="date" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                 </div>
                 
                  {projectType === 'medical_assistance' && (
                     <div className='space-y-4 p-4 border rounded-lg animate-in fade-in'>
                         <h3 className="font-semibold text-md">Referral Details</h3>
                         <div className="grid grid-cols-2 gap-4">
-                            <FormField control={form.control} name="coordinatorName" render={({ field }) => ( <FormItem><FormLabel>Coordinator Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+                            <FormField control={form.control} name="coordinatorName" render={({ field }) => ( <FormItem><FormLabel>Coordinator Name</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
-                            <FormField control={form.control} name="dateReferred" render={({ field }) => ( <FormItem><FormLabel>Date Referred</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                            <FormField control={form.control} name="dateApproved" render={({ field }) => ( <FormItem><FormLabel>Date Approved</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                            <FormField control={form.control} name="dateReferred" render={({ field }) => ( <FormItem><FormLabel>Date Referred</FormLabel><FormControl><Input type="date" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
+                            <FormField control={form.control} name="dateApproved" render={({ field }) => ( <FormItem><FormLabel>Date Approved</FormLabel><FormControl><Input type="date" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem> )} />
                         </div>
                     </div>
                  )}
