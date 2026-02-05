@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { notFound, useParams } from 'next/navigation';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { notFound, useParams, useRouter } from 'next/navigation';
+import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Barangay } from '@/lib/types';
+import { Barangay, MedicalRecord } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage, canDo, hasDistrictScope } from '@/lib/access';
+import { format, isValid } from 'date-fns';
 
 import {
     Card,
@@ -22,6 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import BrgyFormDialog from '../_components/brgy-form-dialog';
 import CaptainProfileDialog from './_components/captain-profile-dialog';
 import GenerateProfilesDialog from './_components/generate-profiles-dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 function DetailPageSkeleton() {
     return (
@@ -66,10 +68,19 @@ function AccessDenied() {
     );
 }
 
+const formatDateSafely = (date: any): string => {
+    if (!date) return 'N/A';
+    const jsDate = date.toDate ? date.toDate() : new Date(date);
+    if (!isValid(jsDate)) return 'Invalid Date';
+    return format(jsDate, 'PPP');
+};
+
 export default function BarangayDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const brgyId = params.brgyId as string;
   const [barangay, setBarangay] = useState<Barangay | null>(null);
+  const [projects, setProjects] = useState<MedicalRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const { userProfile, isPlatformAdminClaim } = useAuth();
   const authOpts = { isPlatformAdminClaim };
@@ -101,7 +112,16 @@ export default function BarangayDetailPage() {
       notFound();
     });
 
-    return () => unsub();
+    const projectsQuery = query(collection(db, 'medicalRecords'), where('brgyId', '==', brgyId));
+    const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
+        const fetchedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MedicalRecord));
+        setProjects(fetchedProjects.sort((a, b) => b.eventDate.toDate().getTime() - a.eventDate.toDate().getTime()));
+    });
+
+    return () => {
+        unsub();
+        unsubProjects();
+    };
   }, [brgyId, userProfile, canView, authOpts]);
 
   if (loading) {
@@ -182,7 +202,30 @@ export default function BarangayDetailPage() {
                 <CardDescription>Projects and initiatives this barangay is a beneficiary of.</CardDescription>
             </CardHeader>
             <CardContent>
-                <p className="text-muted-foreground">Coming soon: A list of all projects and initiatives this barangay is a beneficiary of.</p>
+                {projects.length > 0 ? (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Project ID</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Beneficiary/Title</TableHead>
+                                <TableHead>Event Date</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {projects.map(project => (
+                                <TableRow key={project.id} className="cursor-pointer" onClick={() => router.push(`/projects/medical/${project.id}`)}>
+                                    <TableCell>{project.projectId}</TableCell>
+                                    <TableCell><Badge variant="secondary" className="capitalize">{project.projectType.replace('_', ' ')}</Badge></TableCell>
+                                    <TableCell>{project.projectType === 'medical_assistance' ? project.fullName : project.title}</TableCell>
+                                    <TableCell>{formatDateSafely(project.eventDate)}</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                ) : (
+                    <p className="text-muted-foreground text-center py-4">This barangay has no associated projects yet.</p>
+                )}
             </CardContent>
         </Card>
     </div>
