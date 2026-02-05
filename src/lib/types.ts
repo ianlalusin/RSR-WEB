@@ -21,7 +21,7 @@ export type PageKey =
   | 'barangay_detail'
   | 'organization_orgMembers'
   | 'organization_departments'
-  | 'organization_positions'
+  | 'organization_roles'
   | 'projects'
   | 'analytics'
   | 'profile'
@@ -44,7 +44,7 @@ export interface UserProfile {
   isActive: boolean;
   
   departmentId?: string; // e.g., 'finance', 'operations'
-  positionId?: string;   // e.g., 'platformAdmin', 'officeAdmin'
+  roleId?: string;   // e.g., 'platformAdmin', 'officeAdmin'
 
   // NEW: Centralized access control object
   access: {
@@ -161,22 +161,22 @@ export interface DepartmentListDoc {
   departments: Record<string, DepartmentListItem>;
 }
 
-// UPDATED: Position is now just metadata
-export interface Position {
+// UPDATED: Role is now just metadata
+export interface Role {
   id: string;
   name: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
-export interface PositionListItem {
+export interface RoleListItem {
     name: string;
     createdAt: Timestamp;
     updatedAt: Timestamp;
 }
 
-export interface PositionListDoc {
-    positions: Record<string, PositionListItem>;
+export interface RoleListDoc {
+    roles: Record<string, RoleListItem>;
 }
 
 
@@ -213,7 +213,7 @@ export interface AnalyticsData {
 }
 
 export type AuditLogAction = 'access_update' | 'create' | 'update' | 'delete' | 'bulk_update' | 'generate_ai_profile';
-export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'department' | 'position' | 'system';
+export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'department' | 'role' | 'system';
 
 export interface AuditLog {
     id?: string;

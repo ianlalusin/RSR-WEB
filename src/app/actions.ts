@@ -5,7 +5,7 @@ import {
   type GenerateBarangayProfilesInput,
 } from '@/ai/flows/generate-barangay-profiles';
 import { db } from '@/lib/firebase';
-import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department, Position } from '@/lib/types';
+import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department, Role } from '@/lib/types';
 import { logAudit } from '@/lib/audit';
 import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc, writeBatch, deleteField, setDoc } from 'firebase/firestore';
 
@@ -436,12 +436,12 @@ export async function deleteDepartment(id: string, actor: Actor) {
 }
 
 
-type AddPositionData = Omit<Position, 'id' | 'createdAt' | 'updatedAt'>;
+type AddRoleData = Omit<Role, 'id' | 'createdAt' | 'updatedAt'>;
 
-export async function addPosition(data: AddPositionData, actor: Actor) {
+export async function addRole(data: AddRoleData, actor: Actor) {
     try {
-        const newPosId = doc(collection(db, 'dummy')).id; // Temp ref to get an ID
-        const listDocRef = doc(db, 'lists', 'positions');
+        const newRoleId = doc(collection(db, 'dummy')).id; // Temp ref to get an ID
+        const listDocRef = doc(db, 'lists', 'roles');
         
         const newItemData = {
             ...data,
@@ -449,14 +449,14 @@ export async function addPosition(data: AddPositionData, actor: Actor) {
             updatedAt: serverTimestamp(),
         };
 
-        await setDoc(listDocRef, { positions: { [newPosId]: newItemData } }, { merge: true });
+        await setDoc(listDocRef, { roles: { [newRoleId]: newItemData } }, { merge: true });
 
         await logAudit({
             actorUid: actor.uid,
             actorEmail: actor.email,
             action: 'create',
-            entityType: 'position',
-            entityId: newPosId,
+            entityType: 'role',
+            entityId: newRoleId,
             details: data,
         });
         
@@ -466,14 +466,14 @@ export async function addPosition(data: AddPositionData, actor: Actor) {
     }
 }
 
-export async function updatePosition(id: string, data: Partial<Omit<Position, 'id' | 'createdAt' | 'updatedAt'>>, actor: Actor) {
+export async function updateRole(id: string, data: Partial<Omit<Role, 'id' | 'createdAt' | 'updatedAt'>>, actor: Actor) {
     try {
-        const listDocRef = doc(db, 'lists', 'positions');
+        const listDocRef = doc(db, 'lists', 'roles');
         
         const updatePayload: Record<string, any> = {
-            [`positions.${id}.updatedAt`]: serverTimestamp()
+            [`roles.${id}.updatedAt`]: serverTimestamp()
         };
-        if (data.name !== undefined) updatePayload[`positions.${id}.name`] = data.name;
+        if (data.name !== undefined) updatePayload[`roles.${id}.name`] = data.name;
 
         await updateDoc(listDocRef, updatePayload);
 
@@ -481,7 +481,7 @@ export async function updatePosition(id: string, data: Partial<Omit<Position, 'i
             actorUid: actor.uid,
             actorEmail: actor.email,
             action: 'update',
-            entityType: 'position',
+            entityType: 'role',
             entityId: id,
             details: data,
         });
@@ -492,16 +492,16 @@ export async function updatePosition(id: string, data: Partial<Omit<Position, 'i
     }
 }
 
-export async function deletePosition(id: string, actor: Actor) {
+export async function deleteRole(id: string, actor: Actor) {
     try {
-        const listDocRef = doc(db, 'lists', 'positions');
-        await updateDoc(listDocRef, { [`positions.${id}`]: deleteField() });
+        const listDocRef = doc(db, 'lists', 'roles');
+        await updateDoc(listDocRef, { [`roles.${id}`]: deleteField() });
 
         await logAudit({
             actorUid: actor.uid,
             actorEmail: actor.email,
             action: 'delete',
-            entityType: 'position',
+            entityType: 'role',
             entityId: id,
         });
 

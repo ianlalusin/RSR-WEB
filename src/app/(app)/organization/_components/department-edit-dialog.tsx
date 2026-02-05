@@ -39,7 +39,7 @@ const PAGE_LABELS: Record<PageKey, string> = {
   barangay_detail: 'Barangay (Detail)',
   organization_orgMembers: 'Organization - Members',
   organization_departments: 'Organization - Departments',
-  organization_positions: 'Organization - Positions',
+  organization_roles: 'Organization - Roles',
   projects: 'Projects',
   analytics: 'Analytics',
   profile: 'User Profile',

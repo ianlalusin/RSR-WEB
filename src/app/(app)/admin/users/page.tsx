@@ -16,7 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { UserProfile, Department, Position } from '@/lib/types';
+import { UserProfile, Department, Role } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
 import { isPlatformAdmin } from '@/lib/access';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -44,7 +44,7 @@ export default function UserManagementPage() {
   const { userProfile: actor, isPlatformAdminClaim } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [districts, setDistricts] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -74,8 +74,8 @@ export default function UserManagementPage() {
         setDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Department)));
     });
 
-    const unsubPositions = onSnapshot(query(collection(db, 'positions'), orderBy('name', 'asc')), (snap) => {
-        setPositions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Position)));
+    const unsubRoles = onSnapshot(query(collection(db, 'roles'), orderBy('name', 'asc')), (snap) => {
+        setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Role)));
     });
     
     const fetchDistricts = async () => {
@@ -96,7 +96,7 @@ export default function UserManagementPage() {
     return () => {
         unsubUsers();
         unsubDepartments();
-        unsubPositions();
+        unsubRoles();
     };
   }, [canManage, actor]);
   
@@ -117,13 +117,13 @@ export default function UserManagementPage() {
         }
     });
 
-    const sortedPositionIds = positions.sort((a, b) => a.name.localeCompare(b.name)).map(p => p.id);
+    const sortedRoleIds = roles.sort((a, b) => a.name.localeCompare(b.name)).map(p => p.id);
 
     const result: GroupedUsers[] = departments.map(dept => ({
         department: dept,
         users: (usersByDept[dept.id] || []).sort((a, b) => {
-            const posA = a.positionId ? sortedPositionIds.indexOf(a.positionId) : -1;
-            const posB = b.positionId ? sortedPositionIds.indexOf(b.positionId) : -1;
+            const posA = a.roleId ? sortedRoleIds.indexOf(a.roleId) : -1;
+            const posB = b.roleId ? sortedRoleIds.indexOf(b.roleId) : -1;
             if (posA === posB) return (a.displayName || '').localeCompare(b.displayName || '');
             if (posA === -1) return 1;
             if (posB === -1) return -1;
@@ -139,7 +139,7 @@ export default function UserManagementPage() {
     }
 
     return result.filter(group => group.users.length > 0);
-  }, [users, departments, positions]);
+  }, [users, departments, roles]);
 
   if (loading) {
     return (
@@ -171,7 +171,7 @@ export default function UserManagementPage() {
             <CardHeader>
                 <CardTitle>User Access Management</CardTitle>
                 <CardDescription>
-                    Manage user departments, positions, and page access permissions. Click on a user to expand their settings.
+                    Manage user departments, roles, and page access permissions. Click on a user to expand their settings.
                 </CardDescription>
             </CardHeader>
         </Card>
@@ -189,7 +189,7 @@ export default function UserManagementPage() {
                                 user={user}
                                 actor={actor!}
                                 departments={departments}
-                                positions={positions}
+                                roles={roles}
                                 districts={districts}
                                 onSuccess={handleSuccess}
                             />

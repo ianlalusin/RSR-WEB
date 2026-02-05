@@ -7,7 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Department, Position, UserProfile, DepartmentListDoc, PositionListDoc } from '@/lib/types';
+import { Department, Role, UserProfile, DepartmentListDoc, RoleListDoc } from '@/lib/types';
 import { DataTable } from './data-table';
 import { getOrgMemberColumns } from './columns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -52,7 +52,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
-import { addDepartment, updateDepartment, deleteDepartment, addPosition, updatePosition, deletePosition } from '@/app/actions';
+import { addDepartment, updateDepartment, deleteDepartment, addRole, updateRole, deleteRole } from '@/app/actions';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -274,48 +274,48 @@ function DepartmentsTab({ departments, loading, canWrite, canDel }: { department
   );
 }
 
-// --- Position Form ---
-const positionFormSchema = z.object({
+// --- Role Form ---
+const roleFormSchema = z.object({
   name: z.string().min(2, 'Name is required.'),
 });
 
-type PositionFormValues = z.infer<typeof positionFormSchema>;
+type RoleFormValues = z.infer<typeof roleFormSchema>;
 
-function PositionFormDialog({
-  position,
+function RoleFormDialog({
+  role,
   children,
   onSuccess,
 }: {
-  position?: Position;
+  role?: Role;
   children: React.ReactNode;
   onSuccess?: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
   const { userProfile } = useAuth();
-  const isEditMode = !!position;
+  const isEditMode = !!role;
 
-  const form = useForm<PositionFormValues>({
-    resolver: zodResolver(positionFormSchema),
+  const form = useForm<RoleFormValues>({
+    resolver: zodResolver(roleFormSchema),
     defaultValues: { name: '' },
   });
 
   useEffect(() => {
     if (isOpen) {
-        form.reset(isEditMode ? { name: position.name } : { name: ''});
+        form.reset(isEditMode ? { name: role.name } : { name: ''});
     }
-  }, [isOpen, position, form, isEditMode]);
+  }, [isOpen, role, form, isEditMode]);
 
-  const onSubmit = async (values: PositionFormValues) => {
+  const onSubmit = async (values: RoleFormValues) => {
     if (!userProfile) return;
     const actor = { uid: userProfile.uid, email: userProfile.email };
     try {
       const result = isEditMode
-        ? await updatePosition(position.id, values, actor)
-        : await addPosition(values, actor);
+        ? await updateRole(role.id, values, actor)
+        : await addRole(values, actor);
 
       if (result.success) {
-        toast({ title: `Position ${isEditMode ? 'updated' : 'added'}` });
+        toast({ title: `Role ${isEditMode ? 'updated' : 'added'}` });
         setIsOpen(false);
         onSuccess?.();
       } else {
@@ -331,17 +331,17 @@ function PositionFormDialog({
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEditMode ? 'Edit Position' : 'Add New Position'}</DialogTitle>
-          <DialogDescription>Positions are for organizational grouping only. Permissions are managed per-user.</DialogDescription>
+          <DialogTitle>{isEditMode ? 'Edit Role' : 'Add New Role'}</DialogTitle>
+          <DialogDescription>Roles are for organizational grouping only. Permissions are managed per-user.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField control={form.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Position Name</FormLabel><FormControl><Input placeholder="e.g., Field Coordinator" {...field} /></FormControl><FormMessage /></FormItem> )} />
+            <FormField control={form.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Role Name</FormLabel><FormControl><Input placeholder="e.g., Field Coordinator" {...field} /></FormControl><FormMessage /></FormItem> )} />
             <DialogFooter className="pt-4">
               <DialogClose asChild><Button type="button" variant="secondary">Cancel</Button></DialogClose>
               <Button type="submit" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isEditMode ? 'Save Changes' : 'Create Position'}
+                {isEditMode ? 'Save Changes' : 'Create Role'}
               </Button>
             </DialogFooter>
           </form>
@@ -351,8 +351,8 @@ function PositionFormDialog({
   );
 }
 
-// --- Delete Position Alert ---
-function DeletePositionAlert({ position, children, onSuccess }: { position: Position; children: React.ReactNode; onSuccess?: () => void; }) {
+// --- Delete Role Alert ---
+function DeleteRoleAlert({ role, children, onSuccess }: { role: Role; children: React.ReactNode; onSuccess?: () => void; }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
@@ -363,9 +363,9 @@ function DeletePositionAlert({ position, children, onSuccess }: { position: Posi
     const actor = { uid: userProfile.uid, email: userProfile.email };
     setIsDeleting(true);
     try {
-      const result = await deletePosition(position.id, actor);
+      const result = await deleteRole(role.id, actor);
       if (result.success) {
-        toast({ title: 'Position Deleted' });
+        toast({ title: 'Role Deleted' });
         setIsOpen(false);
         onSuccess?.();
       } else {
@@ -384,7 +384,7 @@ function DeletePositionAlert({ position, children, onSuccess }: { position: Posi
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-          <AlertDialogDescription>This will permanently delete the <strong>{position.name}</strong> position.</AlertDialogDescription>
+          <AlertDialogDescription>This will permanently delete the <strong>{role.name}</strong> role.</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
@@ -398,14 +398,14 @@ function DeletePositionAlert({ position, children, onSuccess }: { position: Posi
   );
 }
 
-// --- Positions Tab ---
-function PositionsTab({ positions, loading, canWrite, canDel }: { positions: Position[], loading: boolean, canWrite: boolean, canDel: boolean }) {
-  const positionColumns: ColumnDef<Position>[] = [
-    { accessorKey: 'name', header: 'Position' },
+// --- Roles Tab ---
+function RolesTab({ roles, loading, canWrite, canDel }: { roles: Role[], loading: boolean, canWrite: boolean, canDel: boolean }) {
+  const roleColumns: ColumnDef<Role>[] = [
+    { accessorKey: 'name', header: 'Role' },
     {
       id: 'actions',
       cell: ({ row }) => {
-        const position = row.original;
+        const role = row.original;
         if (!canWrite) return null;
         return (
           <div className="text-right">
@@ -415,16 +415,16 @@ function PositionsTab({ positions, loading, canWrite, canDel }: { positions: Pos
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                <PositionFormDialog position={position}>
+                <RoleFormDialog role={role}>
                     <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-                </PositionFormDialog>
+                </RoleFormDialog>
                 {canDel && <>
                     <DropdownMenuSeparator />
-                    <DeletePositionAlert position={position}>
+                    <DeleteRoleAlert role={role}>
                         <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
                             <Trash2 className="mr-2 h-4 w-4" />Delete
                         </DropdownMenuItem>
-                    </DeletePositionAlert>
+                    </DeleteRoleAlert>
                 </>}
                 </DropdownMenuContent>
             </DropdownMenu>
@@ -449,20 +449,20 @@ function PositionsTab({ positions, loading, canWrite, canDel }: { positions: Pos
     <div>
         <div className="flex justify-end py-4">
             {canWrite && (
-            <PositionFormDialog>
-                <Button><PlusCircle className="mr-2 h-4 w-4" />Add Position</Button>
-            </PositionFormDialog>
+            <RoleFormDialog>
+                <Button><PlusCircle className="mr-2 h-4 w-4" />Add Role</Button>
+            </RoleFormDialog>
             )}
         </div>
-        <DataTable columns={positionColumns} data={positions} filterColumnId="name" filterPlaceholder="Filter positions..." />
+        <DataTable columns={roleColumns} data={roles} filterColumnId="name" filterPlaceholder="Filter roles..." />
     </div>
   );
 }
 
 
 // --- Org Members Tab ---
-function OrgMembersTab({ users, departments, positions, loading }: { users: UserProfile[], departments: Department[], positions: Position[], loading: boolean }) {
-  const orgMemberColumns = useMemo(() => getOrgMemberColumns(departments, positions), [departments, positions]);
+function OrgMembersTab({ users, departments, roles, loading }: { users: UserProfile[], departments: Department[], roles: Role[], loading: boolean }) {
+  const orgMemberColumns = useMemo(() => getOrgMemberColumns(departments, roles), [departments, roles]);
   
   if (loading) {
     return (
@@ -506,21 +506,21 @@ export default function OrganizationPage() {
   
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
 
   const canViewMembers = canViewPage(userProfile, 'organization_orgMembers');
   const canViewDepts = canViewPage(userProfile, 'organization_departments');
-  const canViewPositions = canViewPage(userProfile, 'organization_positions');
+  const canViewRoles = canViewPage(userProfile, 'organization_roles');
   const canWriteDepts = canDo(userProfile, 'organization_departments', 'update');
   const canDelDepts = canDo(userProfile, 'organization_departments', 'delete');
-  const canWritePositions = canDo(userProfile, 'organization_positions', 'update');
-  const canDelPositions = canDo(userProfile, 'organization_positions', 'delete');
+  const canWriteRoles = canDo(userProfile, 'organization_roles', 'update');
+  const canDelRoles = canDo(userProfile, 'organization_roles', 'delete');
 
   useEffect(() => {
     let userUnsub: () => void = () => {};
     let deptUnsub: () => void = () => {};
-    let posUnsub: () => void = () => {};
+    let roleUnsub: () => void = () => {};
     
     setLoading(true);
 
@@ -544,16 +544,16 @@ export default function OrganizationPage() {
         });
     }
 
-    if (canViewPositions) {
-        const posListRef = doc(db, 'lists', 'positions');
-        posUnsub = onSnapshot(posListRef, async (snap) => {
+    if (canViewRoles) {
+        const roleListRef = doc(db, 'lists', 'roles');
+        roleUnsub = onSnapshot(roleListRef, async (snap) => {
             if (snap.exists()) {
-                const listData = snap.data() as PositionListDoc;
-                const pos = Object.entries(listData.positions || {}).map(([id, data]) => ({ id, ...data } as Position));
-                setPositions(pos.sort((a,b) => a.name.localeCompare(b.name)));
+                const listData = snap.data() as RoleListDoc;
+                const pos = Object.entries(listData.roles || {}).map(([id, data]) => ({ id, ...data } as Role));
+                setRoles(pos.sort((a,b) => a.name.localeCompare(b.name)));
             } else {
-                console.log("Positions list document not found. Creating it...");
-                await setDoc(posListRef, { positions: {} });
+                console.log("Roles list document not found. Creating it...");
+                await setDoc(roleListRef, { roles: {} });
             }
         });
     }
@@ -564,23 +564,23 @@ export default function OrganizationPage() {
     return () => {
         userUnsub();
         deptUnsub();
-        posUnsub();
+        roleUnsub();
         clearTimeout(timer);
     }
-  }, [canViewMembers, canViewDepts, canViewPositions]);
+  }, [canViewMembers, canViewDepts, canViewRoles]);
 
-  if (!canViewMembers && !canViewDepts && !canViewPositions) {
+  if (!canViewMembers && !canViewDepts && !canViewRoles) {
       return <AccessDenied />;
   }
 
-  const defaultTab = canViewMembers ? "org-members" : canViewDepts ? "departments" : "positions";
+  const defaultTab = canViewMembers ? "org-members" : canViewDepts ? "departments" : "roles";
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Organization</CardTitle>
         <CardDescription>
-          Manage organization members, departments, and positions.
+          Manage organization members, departments, and roles.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -588,11 +588,11 @@ export default function OrganizationPage() {
           <TabsList>
             {canViewMembers && <TabsTrigger value="org-members">Org Members</TabsTrigger>}
             {canViewDepts && <TabsTrigger value="departments">Departments</TabsTrigger>}
-            {canViewPositions && <TabsTrigger value="positions">Positions</TabsTrigger>}
+            {canViewRoles && <TabsTrigger value="roles">Roles</TabsTrigger>}
           </TabsList>
-          {canViewMembers && <TabsContent value="org-members"><OrgMembersTab users={users} departments={departments} positions={positions} loading={loading} /></TabsContent>}
+          {canViewMembers && <TabsContent value="org-members"><OrgMembersTab users={users} departments={departments} roles={roles} loading={loading} /></TabsContent>}
           {canViewDepts && <TabsContent value="departments"><DepartmentsTab departments={departments} loading={loading} canWrite={canWriteDepts} canDel={canDelDepts} /></TabsContent>}
-          {canViewPositions && <TabsContent value="positions"><PositionsTab positions={positions} loading={loading} canWrite={canWritePositions} canDel={canDelPositions} /></TabsContent>}
+          {canViewRoles && <TabsContent value="roles"><RolesTab roles={roles} loading={loading} canWrite={canWriteRoles} canDel={canDelRoles} /></TabsContent>}
         </Tabs>
       </CardContent>
     </Card>

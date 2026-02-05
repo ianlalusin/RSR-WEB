@@ -89,7 +89,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           // Admins get full access, others start with restricted access.
           access: isFirstAdmin ? platformAdminAccess : defaultAccess,
           departmentId: isFirstAdmin ? 'admin' : undefined,
-          positionId: isFirstAdmin ? 'platformAdmin' : undefined,
+          roleId: isFirstAdmin ? 'platformAdmin' : undefined,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };

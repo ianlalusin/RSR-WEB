@@ -69,7 +69,7 @@ export default function ProfilePage() {
 
     if (loading || !user || !userProfile) return null;
 
-    const onPasswordSubmit = async (values: z.infer<typeof passwordFormSchema>) => {
+    const onPasswordSubmit = async (values: z.infer<typeof passwordFormSchema>>) => {
         if (!user) {
             toast({ variant: 'destructive', title: 'Not authenticated' });
             return;
@@ -83,7 +83,7 @@ export default function ProfilePage() {
         }
     };
 
-    const onProfileSubmit = async (values: z.infer<typeof profileFormSchema>) => {
+    const onProfileSubmit = async (values: z.infer<typeof profileFormSchema>>) => {
         if (!user) {
             toast({ variant: 'destructive', title: 'Not authenticated' });
             return;
@@ -164,8 +164,8 @@ export default function ProfilePage() {
                                         <p className="text-muted-foreground">{userProfile.email}</p>
                                     </div>
                                     <div>
-                                        <h3 className="font-medium">Position</h3>
-                                        <p className="text-muted-foreground capitalize">{userProfile.positionId?.replace(/_/g, ' ') || 'Not assigned'}</p>
+                                        <h3 className="font-medium">Role</h3>
+                                        <p className="text-muted-foreground capitalize">{userProfile.roleId?.replace(/_/g, ' ') || 'Not assigned'}</p>
                                     </div>
                                 </div>
                             )}

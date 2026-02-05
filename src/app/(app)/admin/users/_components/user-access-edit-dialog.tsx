@@ -47,7 +47,7 @@ import { updateUserAccess } from '@/app/actions';
 import {
   UserProfile,
   Department,
-  Position,
+  Role,
   PageKey,
   AccessLevel,
 } from '@/lib/types';
@@ -60,7 +60,7 @@ const PAGE_LABELS: Record<PageKey, string> = {
   barangay_detail: 'Barangay (Detail)',
   organization_orgMembers: 'Organization - Members',
   organization_departments: 'Organization - Departments',
-  organization_positions: 'Organization - Positions',
+  organization_roles: 'Organization - Roles',
   projects: 'Projects',
   analytics: 'Analytics',
   profile: 'User Profile',
@@ -72,7 +72,7 @@ const ACCESS_LEVELS: AccessLevel[] = ['restricted', 'readonly', 'readwrite', 'fu
 const formSchema = z.object({
   isActive: z.boolean(),
   departmentId: z.string().optional(),
-  positionId: z.string().optional(),
+  roleId: z.string().optional(),
   access: z.object({
     districtIds: z.array(z.string()).default([]),
     pages: z.record(z.nativeEnum(AccessLevel)),
@@ -85,7 +85,7 @@ interface Props {
   user: UserProfile;
   actor: UserProfile;
   departments: Department[];
-  positions: Position[];
+  roles: Role[];
   districts: { id: string; name: string }[];
   onSuccess?: () => void;
   children: React.ReactNode;
@@ -95,7 +95,7 @@ export default function UserAccessEditDialog({
   user,
   actor,
   departments,
-  positions,
+  roles,
   districts,
   onSuccess,
   children,
@@ -108,7 +108,7 @@ export default function UserAccessEditDialog({
     defaultValues: {
       isActive: user.isActive,
       departmentId: user.departmentId || '',
-      positionId: user.positionId || '',
+      roleId: user.roleId || '',
       access: {
         districtIds: user.access?.districtIds || [],
         pages: (ALL_PAGE_KEYS.reduce((acc, key) => {
@@ -123,7 +123,7 @@ export default function UserAccessEditDialog({
     const originalData: Partial<UserProfile> = {
       isActive: user.isActive,
       departmentId: user.departmentId,
-      positionId: user.positionId,
+      roleId: user.roleId,
       access: user.access
     };
 
@@ -135,7 +135,7 @@ export default function UserAccessEditDialog({
     const payload: Partial<UserProfile> = {
         isActive: values.isActive,
         departmentId: values.departmentId,
-        positionId: values.positionId,
+        roleId: values.roleId,
         access: {
             districtIds: values.access.districtIds,
             pages: pagesPayload,
@@ -170,7 +170,7 @@ export default function UserAccessEditDialog({
         <DialogHeader>
           <DialogTitle>Edit Access for {user.displayName}</DialogTitle>
           <DialogDescription>
-            Manage department, position, district scope, and page permissions.
+            Manage department, role, district scope, and page permissions.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -220,16 +220,16 @@ export default function UserAccessEditDialog({
                   />
                   <FormField
                     control={form.control}
-                    name="positionId"
+                    name="roleId"
                     render={({ field }) => (
                       <FormItem className="col-span-1">
-                        <FormLabel>Position</FormLabel>
+                        <FormLabel>Role</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
-                            <SelectTrigger><SelectValue placeholder="Select a position" /></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="Select a role" /></SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {positions.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                            {roles.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </FormItem>

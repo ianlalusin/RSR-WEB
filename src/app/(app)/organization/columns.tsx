@@ -1,11 +1,11 @@
 'use client';
 
 import { ColumnDef } from '@tanstack/react-table';
-import { Department, Position, UserProfile } from '@/lib/types';
+import { Department, Role, UserProfile } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
-export const getOrgMemberColumns = (departments: Department[], positions: Position[]): ColumnDef<UserProfile>[] => [
+export const getOrgMemberColumns = (departments: Department[], roles: Role[]): ColumnDef<UserProfile>[] => [
   {
     accessorKey: 'displayName',
     header: 'Name',
@@ -19,11 +19,11 @@ export const getOrgMemberColumns = (departments: Department[], positions: Positi
     }
   },
   {
-    header: 'Position',
-    accessorKey: 'positionId',
+    header: 'Role',
+    accessorKey: 'roleId',
      cell: ({ row }) => {
-        const position = positions.find(p => p.id === row.original.positionId);
-        return position?.name || 'N/A';
+        const role = roles.find(p => p.id === row.original.roleId);
+        return role?.name || 'N/A';
     }
   },
   {

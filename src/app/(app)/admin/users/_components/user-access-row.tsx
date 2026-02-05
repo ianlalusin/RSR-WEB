@@ -18,7 +18,7 @@ import {
 import {
   UserProfile,
   Department,
-  Position,
+  Role,
   PageKey,
 } from '@/lib/types';
 import { ALL_PAGE_KEYS } from '@/lib/access';
@@ -33,7 +33,7 @@ interface Props {
   user: UserProfile;
   actor: UserProfile;
   departments: Department[];
-  positions: Position[];
+  roles: Role[];
   districts: { id: string; name: string }[];
   onSuccess?: () => void;
 }
@@ -44,7 +44,7 @@ const PAGE_LABELS: Record<PageKey, string> = {
   barangay_detail: 'Barangay (Detail)',
   organization_orgMembers: 'Organization - Members',
   organization_departments: 'Organization - Departments',
-  organization_positions: 'Organization - Positions',
+  organization_roles: 'Organization - Roles',
   projects: 'Projects',
   analytics: 'Analytics',
   profile: 'User Profile',
@@ -58,7 +58,7 @@ const DetailItem = ({ label, children }: { label: string; children: React.ReactN
   </div>
 );
 
-export default function UserAccessRow({ user, actor, departments, positions, districts, onSuccess }: Props) {
+export default function UserAccessRow({ user, actor, departments, roles, districts, onSuccess }: Props) {
   const [isOpen, setIsOpen] = useState(false);
 
   const getInitials = (name: string | null | undefined) => {
@@ -66,7 +66,7 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
     return name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase();
   };
 
-  const userPosition = positions.find(p => p.id === user.positionId);
+  const userRole = roles.find(p => p.id === user.roleId);
   const userDepartment = departments.find(d => d.id === user.departmentId);
 
   return (
@@ -85,7 +85,7 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
           </div>
           <div className="flex items-center gap-4">
             {userDepartment && <Badge variant="secondary">{userDepartment.name}</Badge>}
-            {userPosition && <Badge variant="outline">{userPosition.name}</Badge>}
+            {userRole && <Badge variant="outline">{userRole.name}</Badge>}
             <Badge variant={user.isActive ? 'default' : 'secondary'} className={cn('border-transparent', user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')}>{user.isActive ? 'Active' : 'Inactive'}</Badge>
             <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
           </div>
@@ -103,8 +103,8 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
               <DetailItem label="Department">
                 <p>{userDepartment?.name || 'N/A'}</p>
               </DetailItem>
-              <DetailItem label="Position">
-                <p>{userPosition?.name || 'N/A'}</p>
+              <DetailItem label="Role">
+                <p>{userRole?.name || 'N/A'}</p>
               </DetailItem>
             </div>
 
@@ -150,7 +150,7 @@ export default function UserAccessRow({ user, actor, departments, positions, dis
                 user={user}
                 actor={actor}
                 departments={departments}
-                positions={positions}
+                roles={roles}
                 districts={districts}
                 onSuccess={onSuccess}
               >

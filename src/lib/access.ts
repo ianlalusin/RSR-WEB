@@ -8,7 +8,7 @@ export const ALL_PAGE_KEYS: PageKey[] = [
   'barangay_detail',
   'organization_orgMembers',
   'organization_departments',
-  'organization_positions',
+  'organization_roles',
   'projects',
   'analytics',
   'profile',
@@ -39,15 +39,15 @@ export const platformAdminAccess = {
 /**
  * Platform Admin determination:
  * - Prefer claim (passed in), because it is authoritative
- * - Fallback to profile.positionId for convenience (optional)
+ * - Fallback to profile.roleId for convenience (optional)
  */
 export function isPlatformAdmin(u: UserProfile | null | undefined, isPlatformAdminClaim?: boolean): boolean {
   if (isPlatformAdminClaim === true) return true;
-  return !!u && u.isActive && u.positionId === 'platformAdmin';
+  return !!u && u.isActive && u.roleId === 'platformAdmin';
 }
 
 export function isOfficeAdmin(u: UserProfile | null): boolean {
-  return !!u && u.isActive && u.positionId === 'officeAdmin';
+  return !!u && u.isActive && u.roleId === 'officeAdmin';
 }
 
 export function canViewPage(
