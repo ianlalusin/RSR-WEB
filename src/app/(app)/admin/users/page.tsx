@@ -7,6 +7,8 @@ import {
   query,
   orderBy,
   getDocs,
+  doc,
+  setDoc,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
@@ -16,7 +18,13 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { UserProfile, Department, Role } from '@/lib/types';
+import {
+  UserProfile,
+  Department,
+  Role,
+  DepartmentListDoc,
+  RoleListDoc,
+} from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
 import { isPlatformAdmin } from '@/lib/access';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -70,12 +78,28 @@ export default function UserManagementPage() {
       setLoading(false);
     });
 
-    const unsubDepartments = onSnapshot(query(collection(db, 'departments'), orderBy('name', 'asc')), (snap) => {
-        setDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Department)));
+    const deptListRef = doc(db, 'lists', 'departments');
+    const unsubDepartments = onSnapshot(deptListRef, async (snap) => {
+      if (snap.exists()) {
+        const listData = snap.data() as DepartmentListDoc;
+        const depts = Object.entries(listData.departments || {}).map(([id, data]) => ({ id, ...data } as Department));
+        setDepartments(depts.sort((a,b) => a.name.localeCompare(b.name)));
+      } else {
+        console.log("Departments list document not found on users page. Creating...");
+        await setDoc(deptListRef, { departments: {} });
+      }
     });
 
-    const unsubRoles = onSnapshot(query(collection(db, 'roles'), orderBy('name', 'asc')), (snap) => {
-        setRoles(snap.docs.map(d => ({ id: d.id, ...d.data() } as Role)));
+    const roleListRef = doc(db, 'lists', 'roles');
+    const unsubRoles = onSnapshot(roleListRef, async (snap) => {
+      if (snap.exists()) {
+          const listData = snap.data() as RoleListDoc;
+          const fetchedRoles = Object.entries(listData.roles || {}).map(([id, data]) => ({ id, ...data } as Role));
+          setRoles(fetchedRoles.sort((a, b) => a.name.localeCompare(b.name)));
+      } else {
+           console.log("Roles list document not found on users page. Creating...");
+           await setDoc(roleListRef, { roles: {} });
+      }
     });
     
     const fetchDistricts = async () => {
