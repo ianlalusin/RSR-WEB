@@ -72,7 +72,7 @@ export default function CaptainProfileDialog({ brgyId, canEdit, children }: Prop
   const [profileData, setProfileData] = useState<CaptainProfile | null>(null);
   
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -118,11 +118,11 @@ export default function CaptainProfileDialog({ brgyId, canEdit, children }: Prop
       toast({ variant: 'destructive', title: 'Not authenticated' });
       return;
     }
-    const actor = { uid: userProfile.uid, email: userProfile.email };
+    const actorToken = await user!.getIdToken();
     setIsLoading(true);
 
     try {
-      const result = await updateCaptainProfile(brgyId, !profileData, values, actor);
+      const result = await updateCaptainProfile(brgyId, !profileData, values, actorToken);
       if (result.success) {
         toast({ title: 'Success', description: 'Captain profile has been updated.' });
         setProfileData(values as CaptainProfile);
@@ -249,7 +249,7 @@ export default function CaptainProfileDialog({ brgyId, canEdit, children }: Prop
                                     <DetailItem label="Contact" value={profileData.captain.contact} />
                                     <DetailItem label="Email" value={profileData.captain.email} />
                                     <DetailItem label="Birthday" value={profileData.captain.birthday} />
-                                    <DetailItem label="Age" value={profileData.captain.age > 0 ? profileData.captain.age : undefined} />
+                                    <DetailItem label="Age" value={profileData.captain.age && profileData.captain.age > 0 ? profileData.captain.age : undefined} />
                                     <div className="md:col-span-2">
                                         <DetailItem label="Address" value={profileData.captain.address} />
                                     </div>

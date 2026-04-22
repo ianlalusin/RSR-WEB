@@ -51,8 +51,9 @@ import {
   PageKey,
   AccessLevel,
 } from '@/lib/types';
-import { ALL_PAGE_KEYS } from '@/lib/access';
-import { Loader2 } from 'lucide-react';
+import { ALL_PAGE_KEYS, assignableRoles } from '@/lib/access';
+import { useAuth } from '@/components/providers/auth-provider';
+import { Loader2, Wand2 } from 'lucide-react';
 
 const PAGE_LABELS: Record<PageKey, string> = {
   dashboard: 'Dashboard',
@@ -61,12 +62,20 @@ const PAGE_LABELS: Record<PageKey, string> = {
   organization_orgMembers: 'Organization - Members',
   organization_departments: 'Organization - Departments',
   organization_roles: 'Organization - Roles',
-  projects: 'Projects',
+  receiving: 'Receiving',
   projects_medical: 'Projects - Medical',
   projects_hospitals: 'Projects - Hospitals',
+  projects_educational: 'Projects - Educational',
+  projects_infrastructure: 'Projects - Infrastructure',
+  tasker: 'Tasker',
   analytics: 'Analytics',
   profile: 'User Profile',
   admin_users: 'Admin - User Management',
+  socmed: 'SocMed',
+  scholarship_providers: 'Scholarship - Providers',
+  scholarship_applications: 'Scholarship - Applications',
+  scholarship_scholars: 'Scholarship - Scholars',
+  scholarship_portal: 'Scholarship - Portal',
 };
 
 const ACCESS_LEVELS: [AccessLevel, ...AccessLevel[]] = ['restricted', 'readonly', 'readwrite', 'full'];
@@ -103,7 +112,10 @@ export default function UserAccessEditDialog({
   children,
 }: Props) {
   const { toast } = useToast();
+  const { user: authUser, isPlatformAdminClaim } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+
+  const allowedRoles = assignableRoles(actor, { isPlatformAdminClaim, roles });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -120,6 +132,19 @@ export default function UserAccessEditDialog({
       },
     },
   });
+
+  const applyRolePreset = () => {
+    const roleId = form.getValues('roleId');
+    const roleDoc = roles.find(r => r.id === roleId);
+    if (!roleDoc?.preset) return;
+
+    const pagesFlat: Record<string, AccessLevel> = {};
+    ALL_PAGE_KEYS.forEach(key => {
+      pagesFlat[key] = (roleDoc.preset![key] as AccessLevel) ?? 'restricted';
+    });
+    form.setValue('access.pages', pagesFlat, { shouldDirty: true });
+    toast({ title: 'Preset Applied', description: `Page permissions set to ${roleDoc.name} defaults.` });
+  };
 
   const onSubmit = async (values: FormValues) => {
     const originalData: Partial<UserProfile> = {
@@ -143,10 +168,10 @@ export default function UserAccessEditDialog({
             pages: pagesPayload,
         }
     }
-    
+
     try {
-      const actorPayload = { uid: actor.uid, email: actor.email };
-      const result = await updateUserAccess(user.uid, payload, actorPayload, originalData);
+      const actorToken = await authUser!.getIdToken();
+      const result = await updateUserAccess(user.uid, payload, actorToken, originalData);
       if (result.success) {
         toast({
           title: `User updated`,
@@ -232,13 +257,27 @@ export default function UserAccessEditDialog({
                             <SelectTrigger><SelectValue placeholder="Select a role" /></SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {roles.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                            {allowedRoles.map(role => (
+                              <SelectItem key={role.id} value={role.id}>
+                                {role.name}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </FormItem>
                     )}
                   />
                 </div>
+
+                {(() => {
+                  const selectedRole = roles.find(r => r.id === form.watch('roleId'));
+                  return selectedRole?.preset ? (
+                    <Button type="button" variant="outline" size="sm" onClick={applyRolePreset}>
+                      <Wand2 className="mr-2 h-4 w-4" />
+                      Apply {selectedRole.name} Preset
+                    </Button>
+                  ) : null;
+                })()}
 
                 <FormField
                   control={form.control}

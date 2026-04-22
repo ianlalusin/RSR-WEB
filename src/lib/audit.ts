@@ -1,7 +1,7 @@
 'use server';
 
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import type { AuditLog, AuditLogAction, AuditLogEntityType } from '@/lib/types';
 
 interface LogAuditParams {
@@ -14,20 +14,14 @@ interface LogAuditParams {
   details?: any;
 }
 
-/**
- * Logs an action to the auditLogs collection in Firestore.
- * @param params - The parameters for the audit log entry.
- */
 export async function logAudit(params: LogAuditParams) {
   try {
-    const auditLogRef = collection(db, 'auditLogs');
     const logEntry: Omit<AuditLog, 'id' | 'timestamp'> & { timestamp: any } = {
       ...params,
-      timestamp: serverTimestamp(),
+      timestamp: FieldValue.serverTimestamp(),
     };
-    await addDoc(auditLogRef, logEntry);
+    await adminDb.collection('auditLogs').add(logEntry);
   } catch (error) {
-    console.error("Failed to write audit log:", error);
-    // Depending on requirements, you might want to handle this error more gracefully.
+    console.error('Failed to write audit log:', error);
   }
 }

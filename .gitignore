@@ -45,3 +45,4 @@ firebase-debug.log
 firestore-debug.log
 # Firebase service account (DO NOT COMMIT)
 scripts/serviceAccountKey.json
+privatekey_serviceaccounts.json

@@ -2,11 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Home, Landmark, Shield, LogOut, HeartHandshake, Briefcase, LineChart } from 'lucide-react';
+import { Home, Landmark, Shield, LogOut, Briefcase, LineChart, HeartPulse, GraduationCap, Building, Inbox, ClipboardList, Megaphone } from 'lucide-react';
 import { useAuth } from '../providers/auth-provider';
 import { cn } from '@/lib/utils';
-import { canViewPage, isPlatformAdmin } from '@/lib/access';
+import { canViewPage, isPlatformAdmin, isOIC } from '@/lib/access';
 import { PageKey } from '@/lib/types';
 
 interface NavItem {
@@ -20,12 +19,17 @@ const navItems: NavItem[] = [
   { href: '/', icon: Home, label: 'Dashboard', pageKeys: ['dashboard'] },
   { href: '/barangays', icon: Landmark, label: 'Barangays', pageKeys: ['barangays_list'] },
   { href: '/organization', icon: Briefcase, label: 'Organization', pageKeys: ['organization_orgMembers', 'organization_departments', 'organization_roles'] },
-  { href: '/projects', icon: HeartHandshake, label: 'Projects', pageKeys: ['projects', 'projects_medical'] },
+  { href: '/receiving', icon: Inbox, label: 'Receiving', pageKeys: ['receiving'] },
+  { href: '/medical', icon: HeartPulse, label: 'Medical', pageKeys: ['projects_medical'] },
+  { href: '/educational', icon: GraduationCap, label: 'Educational', pageKeys: ['projects_educational'] },
+  { href: '/infrastructure', icon: Building, label: 'Infrastructure', pageKeys: ['projects_infrastructure'] },
+  { href: '/tasker', icon: ClipboardList, label: 'Tasker', pageKeys: ['tasker'] },
   { href: '/analytics', icon: LineChart, label: 'Analytics', pageKeys: ['analytics'] },
+  { href: '/socmed', icon: Megaphone, label: 'SocMed', pageKeys: ['socmed'] },
 ];
 
 const adminNavItems = [
-  { href: '/admin/users', icon: Shield, label: 'User Access' },
+  { href: '/admin', icon: Shield, label: 'Admin' },
 ];
 
 export function Sidebar() {
@@ -33,77 +37,65 @@ export function Sidebar() {
   const { logout, userProfile, isPlatformAdminClaim } = useAuth();
 
   const authOpts = { isPlatformAdminClaim };
-  const isAdmin = isPlatformAdmin(userProfile, isPlatformAdminClaim);
+  const isAdmin = isPlatformAdmin(userProfile, isPlatformAdminClaim) || isOIC(userProfile);
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-10 hidden w-14 flex-col border-r bg-background sm:flex">
-      <TooltipProvider>
-        <nav className="flex flex-col items-center gap-4 px-2 py-4">
-          <Link
-            href="/"
-            className="group flex h-9 w-9 shrink-0 items-center justify-center gap-2 rounded-full bg-primary text-lg font-semibold text-primary-foreground md:h-8 md:w-8 md:text-base"
-          >
-            <Landmark className="h-4 w-4 transition-all group-hover:scale-110" />
-            <span className="sr-only">RSR Web</span>
+    <aside className="fixed inset-y-0 left-0 z-10 hidden w-48 flex-col border-r bg-background sm:flex">
+      <nav className="flex flex-col gap-1 px-3 py-4">
+        <div className="flex flex-col px-3 mb-4">
+          <Link href="/" className="text-2xl font-extrabold tracking-tight text-primary">
+            TAPp
           </Link>
+          <span className="text-[10px] text-muted-foreground leading-tight">Talino at Puso App</span>
+        </div>
 
-          {navItems.map((item) => (
-            item.pageKeys.some(key => canViewPage(userProfile, key, authOpts)) && (
-              <Tooltip key={item.href}>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground md:h-8 md:w-8',
-                      (pathname.startsWith(item.href) && item.href !== '/') || pathname === item.href
-                        ? 'bg-accent text-accent-foreground'
-                        : ''
-                    )}
-                  >
-                    <item.icon className="h-5 w-5" />
-                    <span className="sr-only">{item.label}</span>
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
-              </Tooltip>
-            )
-          ))}
+        {navItems.map((item) => (
+          item.pageKeys.some(key => canViewPage(userProfile, key, authOpts)) && (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex h-9 items-center gap-3 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:text-foreground hover:bg-muted',
+                (pathname.startsWith(item.href) && item.href !== '/') || pathname === item.href
+                  ? 'bg-accent text-accent-foreground font-medium'
+                  : ''
+              )}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              <span>{item.label}</span>
+            </Link>
+          )
+        ))}
 
-          {isAdmin &&
-            adminNavItems.map((item) => (
-              <Tooltip key={item.href}>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground md:h-8 md:w-8',
-                      pathname.startsWith(item.href) ? 'bg-accent text-accent-foreground' : ''
-                    )}
-                  >
-                    <item.icon className="h-5 w-5" />
-                    <span className="sr-only">{item.label}</span>
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
-              </Tooltip>
-            ))}
-        </nav>
-
-        <nav className="mt-auto flex flex-col items-center gap-4 px-2 py-4">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => logout()}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground md:h-8 md:w-8"
+        {isAdmin && (
+          <>
+            <div className="my-2 border-t" />
+            {adminNavItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  'flex h-9 items-center gap-3 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:text-foreground hover:bg-muted',
+                  pathname.startsWith(item.href) ? 'bg-accent text-accent-foreground font-medium' : ''
+                )}
               >
-                <LogOut className="h-5 w-5" />
-                <span className="sr-only">Logout</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Logout</TooltipContent>
-          </Tooltip>
-        </nav>
-      </TooltipProvider>
+                <item.icon className="h-4 w-4 shrink-0" />
+                <span>{item.label}</span>
+              </Link>
+            ))}
+          </>
+        )}
+      </nav>
+
+      <nav className="mt-auto px-3 py-4">
+        <button
+          onClick={() => logout()}
+          className="flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:text-foreground hover:bg-muted"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          <span>Logout</span>
+        </button>
+      </nav>
     </aside>
   );
 }

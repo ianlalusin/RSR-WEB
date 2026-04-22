@@ -82,8 +82,8 @@ export default function BarangayDetailPage() {
   const [barangay, setBarangay] = useState<Barangay | null>(null);
   const [projects, setProjects] = useState<MedicalRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const { userProfile, isPlatformAdminClaim } = useAuth();
-  const authOpts = { isPlatformAdminClaim };
+  const { userProfile, isPlatformAdminClaim, roles } = useAuth();
+  const authOpts = { isPlatformAdminClaim, roles };
 
   const canView = canViewPage(userProfile, 'barangay_detail', authOpts);
 
@@ -177,7 +177,7 @@ export default function BarangayDetailPage() {
                             <p className="text-muted-foreground">Voting Population</p>
                         </div>
                     </div>
-                     <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
                         <Users className="w-5 h-5 text-muted-foreground" />
                         <div>
                             <p className="font-semibold">{barangay.rsrVotes.toLocaleString()}</p>
@@ -188,7 +188,7 @@ export default function BarangayDetailPage() {
                         <HandCoins className="w-5 h-5 text-muted-foreground" />
                         <div>
                             <p className="font-semibold">{barangay.favoredVotePct.toFixed(1)}%</p>
-                            <p className="text-muted-foreground">Favored Vote</p>
+                            <p className="text-muted-foreground">RSR Vote %</p>
                         </div>
                     </div>
                 </div>
@@ -198,7 +198,7 @@ export default function BarangayDetailPage() {
         {/* The assistance records will now be shown here, queried from the global assistance collections */}
         <Card>
             <CardHeader>
-                <CardTitle>RSR Projects & Initiatives</CardTitle>
+                <CardTitle>TAPp Projects & Initiatives</CardTitle>
                 <CardDescription>Projects and initiatives this barangay is a beneficiary of.</CardDescription>
             </CardHeader>
             <CardContent>
@@ -214,7 +214,7 @@ export default function BarangayDetailPage() {
                         </TableHeader>
                         <TableBody>
                             {projects.map(project => (
-                                <TableRow key={project.id} className="cursor-pointer" onClick={() => router.push(`/projects/medical/${project.id}`)}>
+                                <TableRow key={project.id} className="cursor-pointer" onClick={() => router.push(`/medical/${project.id}`)}>
                                     <TableCell>{project.projectId}</TableCell>
                                     <TableCell><Badge variant="secondary" className="capitalize">{project.projectType.replace('_', ' ')}</Badge></TableCell>
                                     <TableCell>{project.projectType === 'medical_assistance' ? project.fullName : project.title}</TableCell>

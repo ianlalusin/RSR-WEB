@@ -3,8 +3,8 @@ import './globals.css';
 import { RootProviders } from '@/components/providers/root-providers';
 
 export const metadata: Metadata = {
-  title: 'RSR Web',
-  description: 'RSR Web Application',
+  title: 'TAPp',
+  description: 'Talino at Puso App',
 };
 
 export default function RootLayout({

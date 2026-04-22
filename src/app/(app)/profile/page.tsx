@@ -69,7 +69,7 @@ export default function ProfilePage() {
 
     if (loading || !user || !userProfile) return null;
 
-    const onPasswordSubmit = async (values: z.infer<typeof passwordFormSchema>>) => {
+    const onPasswordSubmit = async (values: z.infer<typeof passwordFormSchema>) => {
         if (!user) {
             toast({ variant: 'destructive', title: 'Not authenticated' });
             return;
@@ -83,7 +83,7 @@ export default function ProfilePage() {
         }
     };
 
-    const onProfileSubmit = async (values: z.infer<typeof profileFormSchema>>) => {
+    const onProfileSubmit = async (values: z.infer<typeof profileFormSchema>) => {
         if (!user) {
             toast({ variant: 'destructive', title: 'Not authenticated' });
             return;
@@ -92,7 +92,7 @@ export default function ProfilePage() {
         const result = await updateSelfProfile(user.uid, {
             displayName: values.displayName || '',
             photoURL: values.photoURL || '',
-        }, { uid: user.uid, email: user.email });
+        }, await user!.getIdToken());
 
         if (result.success) {
             toast({ title: 'Profile Updated', description: 'Your profile has been successfully updated.' });

@@ -9,7 +9,7 @@ import {
   signOut as firebaseSignOut,
 } from 'firebase/auth';
 import { auth, db, googleProvider } from '@/lib/firebase';
-import type { UserProfile } from '@/lib/types';
+import type { UserProfile, Role, RoleListDoc } from '@/lib/types';
 import { doc, onSnapshot, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { Landmark } from 'lucide-react';
 import { defaultAccess, platformAdminAccess } from '@/lib/access';
@@ -17,6 +17,7 @@ import { defaultAccess, platformAdminAccess } from '@/lib/access';
 interface AuthContextType {
   user: User | null;
   userProfile: UserProfile | null;
+  roles: Role[];
   isPlatformAdminClaim: boolean;
   loading: boolean;
   login: (email: string, pass: string) => Promise<any>;
@@ -27,6 +28,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   userProfile: null,
+  roles: [],
   isPlatformAdminClaim: false,
   loading: true,
   login: async () => {},
@@ -36,9 +38,9 @@ const AuthContext = createContext<AuthContextType>({
 
 const FullScreenLoader = () => (
   <div className="flex h-screen w-full items-center justify-center bg-background">
-    <div className="flex flex-col items-center gap-4">
-      <Landmark className="h-16 w-16 animate-pulse text-primary" />
-      <p className="text-muted-foreground">Loading RSR Web...</p>
+    <div className="flex flex-col items-center gap-2">
+      <span className="text-5xl font-extrabold tracking-tight text-primary animate-pulse">TAPp</span>
+      <p className="text-xs text-muted-foreground">Talino at Puso App</p>
     </div>
   </div>
 );
@@ -46,10 +48,21 @@ const FullScreenLoader = () => (
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [isPlatformAdminClaim, setIsPlatformAdminClaim] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const rolesRef = doc(db, 'lists', 'roles');
+    const unsubRoles = onSnapshot(rolesRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as RoleListDoc;
+        setRoles(
+          Object.entries(data.roles || {}).map(([id, r]) => ({ id, ...r } as Role))
+        );
+      }
+    });
+
     let unsubProfile: () => void = () => {};
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -79,7 +92,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (!docSnap.exists()) {
         const isFirstAdmin = isAdmin;
         
-        const newUserProfile: Omit<UserProfile, 'roles' | 'permissions'> = {
+        const newUserProfile: UserProfile = {
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           displayName: firebaseUser.displayName,
@@ -124,6 +137,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => {
+      unsubRoles();
       unsubscribe();
       unsubProfile();
     };
@@ -133,7 +147,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
   const logout = () => firebaseSignOut(auth);
 
-  const value = { user, userProfile, isPlatformAdminClaim, loading, login, loginWithGoogle, logout };
+  const value = { user, userProfile, roles, isPlatformAdminClaim, loading, login, loginWithGoogle, logout };
 
   if (loading) return <FullScreenLoader />;
 

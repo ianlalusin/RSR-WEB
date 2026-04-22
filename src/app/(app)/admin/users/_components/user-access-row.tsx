@@ -21,7 +21,8 @@ import {
   Role,
   PageKey,
 } from '@/lib/types';
-import { ALL_PAGE_KEYS } from '@/lib/access';
+import { ALL_PAGE_KEYS, canManageUser } from '@/lib/access';
+import { useAuth } from '@/components/providers/auth-provider';
 import { ChevronsUpDown, Edit } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -45,11 +46,20 @@ const PAGE_LABELS: Record<PageKey, string> = {
   organization_orgMembers: 'Organization - Members',
   organization_departments: 'Organization - Departments',
   organization_roles: 'Organization - Roles',
-  projects: 'Projects',
+  receiving: 'Receiving',
   projects_medical: 'Projects - Medical',
+  projects_hospitals: 'Projects - Hospitals',
+  projects_educational: 'Projects - Educational',
+  projects_infrastructure: 'Projects - Infrastructure',
+  tasker: 'Tasker',
   analytics: 'Analytics',
   profile: 'User Profile',
   admin_users: 'Admin - User Management',
+  socmed: 'SocMed',
+  scholarship_providers: 'Scholarship - Providers',
+  scholarship_applications: 'Scholarship - Applications',
+  scholarship_scholars: 'Scholarship - Scholars',
+  scholarship_portal: 'Scholarship - Portal',
 };
 
 const DetailItem = ({ label, children }: { label: string; children: React.ReactNode }) => (
@@ -61,6 +71,8 @@ const DetailItem = ({ label, children }: { label: string; children: React.ReactN
 
 export default function UserAccessRow({ user, actor, departments, roles, districts, onSuccess }: Props) {
   const [isOpen, setIsOpen] = useState(false);
+  const { isPlatformAdminClaim } = useAuth();
+  const canEdit = canManageUser(actor, user, { isPlatformAdminClaim, roles });
 
   const getInitials = (name: string | null | undefined) => {
     if (!name) return 'U';
@@ -146,21 +158,23 @@ export default function UserAccessRow({ user, actor, departments, roles, distric
               </Table>
             </div>
 
-            <div className="flex justify-end pt-4 border-t">
-               <UserAccessEditDialog
-                user={user}
-                actor={actor}
-                departments={departments}
-                roles={roles}
-                districts={districts}
-                onSuccess={onSuccess}
-              >
-                <Button>
-                  <Edit className="mr-2 h-4 w-4" />
-                  Edit Access
-                </Button>
-              </UserAccessEditDialog>
-            </div>
+            {canEdit && (
+              <div className="flex justify-end pt-4 border-t">
+                <UserAccessEditDialog
+                  user={user}
+                  actor={actor}
+                  departments={departments}
+                  roles={roles}
+                  districts={districts}
+                  onSuccess={onSuccess}
+                >
+                  <Button>
+                    <Edit className="mr-2 h-4 w-4" />
+                    Edit Access
+                  </Button>
+                </UserAccessEditDialog>
+              </div>
+            )}
           </div>
         </div>
       </CollapsibleContent>

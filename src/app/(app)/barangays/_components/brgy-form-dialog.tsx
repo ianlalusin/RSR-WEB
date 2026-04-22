@@ -54,7 +54,7 @@ const districts = [
 export default function BrgyFormDialog({ barangay, children, onSuccess }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   const isEditMode = !!barangay;
 
   const form = useForm<FormValues>({
@@ -74,13 +74,13 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
         toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in.' });
         return;
     }
-    const actor = { uid: userProfile.uid, email: userProfile.email };
+    const actorToken = await user!.getIdToken();
 
     try {
       const favoredVotePct = values.votingPopulation > 0 ? (values.rsrVotes / values.votingPopulation) * 100 : 0;
       let result;
       if (isEditMode) {
-        result = await updateBarangay(barangay.id, { ...values, favoredVotePct }, actor);
+        result = await updateBarangay(barangay.id, { ...values, favoredVotePct }, actorToken);
       } else {
         const newBrgyData = {
           ...values,
@@ -89,7 +89,7 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
           congVisitCount: 0,
           coordinatorUids: [],
         }
-        result = await addBarangay(newBrgyData, actor);
+        result = await addBarangay(newBrgyData, actorToken);
       }
 
       if (result.success) {

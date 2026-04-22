@@ -65,7 +65,7 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
   const [parsedData, setParsedData] = useState<UploadedBrgy[]>([]);
   const [fileName, setFileName] = useState('');
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -123,11 +123,11 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
         toast({ variant: 'destructive', title: 'Not authenticated' });
         return;
     }
-    const actor = { uid: userProfile.uid, email: userProfile.email };
+    const actorToken = await user!.getIdToken();
 
     setIsUploading(true);
     try {
-      const result = await bulkAddBarangays(parsedData, actor);
+      const result = await bulkAddBarangays(parsedData, actorToken);
       if (result.success) {
         toast({
           title: 'Upload Successful',

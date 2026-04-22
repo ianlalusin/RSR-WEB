@@ -32,7 +32,7 @@ export default function GenerateProfilesDialog({ barangay, canGenerate }: Props)
   const [error, setError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<GeneratedProfile[] | null>(null);
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
 
   const handleGeneration = async () => {
     if (!userProfile) return;
@@ -49,16 +49,16 @@ export default function GenerateProfilesDialog({ barangay, canGenerate }: Props)
       favoredVotePct: barangay.favoredVotePct,
     };
 
-    const result = await generateBarangayProfiles(input, { uid: userProfile.uid, email: userProfile.email });
+    const result = await generateBarangayProfiles(input, await user!.getIdToken());
 
     if (result.success && result.data) {
-      setProfiles(result.data);
+      setProfiles(result.data as GeneratedProfile[]);
       toast({
         title: 'Profiles Generated',
         description: `Successfully generated ${result.data.length} resident profiles.`,
       });
     } else {
-      setError(result.error);
+      setError(result.error ?? null);
     }
 
     setIsLoading(false);

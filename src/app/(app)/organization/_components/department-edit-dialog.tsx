@@ -40,12 +40,20 @@ const PAGE_LABELS: Record<PageKey, string> = {
   organization_orgMembers: 'Organization - Members',
   organization_departments: 'Organization - Departments',
   organization_roles: 'Organization - Roles',
-  projects: 'Projects',
+  receiving: 'Receiving',
   projects_medical: 'Projects - Medical',
   projects_hospitals: 'Projects - Hospitals',
+  projects_educational: 'Projects - Educational',
+  projects_infrastructure: 'Projects - Infrastructure',
+  tasker: 'Tasker',
   analytics: 'Analytics',
   profile: 'User Profile',
   admin_users: 'Admin - User Management',
+  socmed: 'SocMed',
+  scholarship_providers: 'Scholarship - Providers',
+  scholarship_applications: 'Scholarship - Applications',
+  scholarship_scholars: 'Scholarship - Scholars',
+  scholarship_portal: 'Scholarship - Portal',
 };
 
 const formSchema = z.object({
@@ -65,7 +73,7 @@ interface Props {
 
 export default function DepartmentEditDialog({ department, isOpen, onOpenChange, onSuccess }: Props) {
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -94,15 +102,15 @@ export default function DepartmentEditDialog({ department, isOpen, onOpenChange,
 
   const onSubmit = async (values: FormValues) => {
     if (!userProfile) return;
-    const actor = { uid: userProfile.uid, email: userProfile.email };
-    
+    const actorToken = await user!.getIdToken();
+
     try {
         const payload = {
             name: values.name,
             description: values.description,
             pageVisibility: values.pageVisibility,
         };
-      const result = await updateDepartment(department.id, payload, actor);
+      const result = await updateDepartment(department.id, payload, actorToken);
 
       if (result.success) {
         toast({ title: `Department updated` });

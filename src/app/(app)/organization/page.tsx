@@ -53,9 +53,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { addDepartment, updateDepartment, deleteDepartment, addRole, updateRole, deleteRole } from '@/app/actions';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { ALL_PAGE_KEYS } from '@/lib/access';
+import type { AccessLevel, PageKey } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import DepartmentEditDialog from './_components/department-edit-dialog';
@@ -80,7 +87,7 @@ function DepartmentFormDialog({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   const isEditMode = !!department;
 
   const form = useForm<DepartmentFormValues>({
@@ -102,11 +109,11 @@ function DepartmentFormDialog({
 
   const onSubmit = async (values: DepartmentFormValues) => {
     if (!userProfile) return;
-    const actor = { uid: userProfile.uid, email: userProfile.email };
+    const actorToken = await user!.getIdToken();
     try {
       const result = isEditMode
-        ? await updateDepartment(department.id, values, actor)
-        : await addDepartment(values, actor);
+        ? await updateDepartment(department.id, values, actorToken)
+        : await addDepartment(values, actorToken);
 
       if (result.success) {
         toast({
@@ -160,14 +167,14 @@ function DeleteDepartmentAlert({ department, children, onSuccess }: { department
   const [isOpen, setIsOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
 
   const handleDelete = async () => {
     if (!userProfile) return;
-    const actor = { uid: userProfile.uid, email: userProfile.email };
+    const actorToken = await user!.getIdToken();
     setIsDeleting(true);
     try {
-      const result = await deleteDepartment(department.id, actor);
+      const result = await deleteDepartment(department.id, actorToken);
       if (result.success) {
         toast({ title: 'Department Deleted', description: `${department.name} has been deleted.` });
         setIsOpen(false);
@@ -275,8 +282,26 @@ function DepartmentsTab({ departments, loading, canWrite, canDel }: { department
 }
 
 // --- Role Form ---
+const ACCESS_LEVELS: [AccessLevel, ...AccessLevel[]] = ['restricted', 'readonly', 'readwrite', 'full'];
+
+const PAGE_LABELS: Record<PageKey, string> = {
+  dashboard: 'Dashboard', barangays_list: 'Barangays (List)', barangay_detail: 'Barangay (Detail)',
+  organization_orgMembers: 'Org - Members', organization_departments: 'Org - Departments', organization_roles: 'Org - Roles',
+  receiving: 'Receiving', projects_medical: 'Medical', projects_hospitals: 'Hospitals',
+  projects_educational: 'Educational', projects_infrastructure: 'Infrastructure',
+  tasker: 'Tasker', analytics: 'Analytics', profile: 'Profile',
+  admin_users: 'Admin - Users', socmed: 'SocMed',
+  scholarship_providers: 'Scholarship - Providers',
+  scholarship_applications: 'Scholarship - Applications',
+  scholarship_scholars: 'Scholarship - Scholars',
+  scholarship_portal: 'Scholarship - Portal',
+};
+
 const roleFormSchema = z.object({
   name: z.string().min(2, 'Name is required.'),
+  rank: z.coerce.number().int().min(1, 'Min 1').max(99, 'Max 99'),
+  scopeBreadth: z.enum(['own_districts', 'all_districts', 'none']),
+  preset: z.record(z.enum(ACCESS_LEVELS)).optional(),
 });
 
 type RoleFormValues = z.infer<typeof roleFormSchema>;
@@ -292,27 +317,38 @@ function RoleFormDialog({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   const isEditMode = !!role;
+  const isBuiltIn = role?.isBuiltIn ?? false;
+
+  const defaultPreset = ALL_PAGE_KEYS.reduce((acc, k) => { acc[k] = 'restricted'; return acc; }, {} as Record<string, AccessLevel>);
 
   const form = useForm<RoleFormValues>({
     resolver: zodResolver(roleFormSchema),
-    defaultValues: { name: '' },
+    defaultValues: { name: '', rank: 20, scopeBreadth: 'own_districts', preset: defaultPreset },
   });
 
   useEffect(() => {
     if (isOpen) {
-        form.reset(isEditMode ? { name: role.name } : { name: ''});
+      if (isEditMode && role) {
+        const preset = ALL_PAGE_KEYS.reduce((acc, k) => {
+          acc[k] = (role.preset?.[k] as AccessLevel) ?? 'restricted';
+          return acc;
+        }, {} as Record<string, AccessLevel>);
+        form.reset({ name: role.name, rank: role.rank ?? 20, scopeBreadth: role.scopeBreadth ?? 'own_districts', preset });
+      } else {
+        form.reset({ name: '', rank: 20, scopeBreadth: 'own_districts', preset: defaultPreset });
+      }
     }
   }, [isOpen, role, form, isEditMode]);
 
   const onSubmit = async (values: RoleFormValues) => {
     if (!userProfile) return;
-    const actor = { uid: userProfile.uid, email: userProfile.email };
+    const actorToken = await user!.getIdToken();
     try {
       const result = isEditMode
-        ? await updateRole(role.id, values, actor)
-        : await addRole(values, actor);
+        ? await updateRole(role.id, values, actorToken)
+        : await addRole({ name: values.name }, actorToken);
 
       if (result.success) {
         toast({ title: `Role ${isEditMode ? 'updated' : 'added'}` });
@@ -329,15 +365,85 @@ function RoleFormDialog({
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>{isEditMode ? 'Edit Role' : 'Add New Role'}</DialogTitle>
-          <DialogDescription>Roles are for organizational grouping only. Permissions are managed per-user.</DialogDescription>
+          <div className="flex items-center gap-2">
+            <DialogTitle>{isEditMode ? 'Edit Role' : 'Add New Role'}</DialogTitle>
+            {isBuiltIn && <Badge variant="secondary">Built-in</Badge>}
+          </div>
+          <DialogDescription>
+            {isBuiltIn
+              ? 'Built-in role — name and preset are editable; rank and scope are fixed.'
+              : 'Custom role — all fields are editable. Rank determines management hierarchy (higher outranks lower).'}
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField control={form.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Role Name</FormLabel><FormControl><Input placeholder="e.g., Field Coordinator" {...field} /></FormControl><FormMessage /></FormItem> )} />
-            <DialogFooter className="pt-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4 overflow-hidden">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <FormField control={form.control} name="name" render={({ field }) => (
+                <FormItem className="sm:col-span-1">
+                  <FormLabel>Role Name</FormLabel>
+                  <FormControl><Input placeholder="e.g., Field Coordinator" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="rank" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rank</FormLabel>
+                  <FormControl><Input type="number" min={1} max={99} disabled={isBuiltIn} {...field} /></FormControl>
+                  <FormDescription className="text-xs">1–99. Higher outranks lower.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="scopeBreadth" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>District Scope</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value} disabled={isBuiltIn}>
+                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      <SelectItem value="own_districts">Own districts only</SelectItem>
+                      <SelectItem value="all_districts">All districts</SelectItem>
+                      <SelectItem value="none">None (e.g. applicant)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            </div>
+
+            <div>
+              <p className="text-sm font-semibold mb-1">Default Preset <span className="font-normal text-muted-foreground">(applied when role is assigned to a user)</span></p>
+              <ScrollArea className="h-56 rounded border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-40">Page</TableHead>
+                      {ACCESS_LEVELS.map(l => <TableHead key={l} className="text-center capitalize text-xs">{l}</TableHead>)}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ALL_PAGE_KEYS.map(pageKey => (
+                      <FormField key={pageKey} control={form.control} name={`preset.${pageKey}` as any} render={({ field }) => (
+                        <TableRow>
+                          <TableCell className="text-xs font-medium py-1">{PAGE_LABELS[pageKey]}</TableCell>
+                          <TableCell colSpan={4} className="py-1">
+                            <RadioGroup onValueChange={field.onChange} value={field.value as string} className="flex gap-0">
+                              {ACCESS_LEVELS.map(level => (
+                                <div key={level} className="flex flex-1 items-center justify-center">
+                                  <RadioGroupItem value={level} id={`${pageKey}-${level}`} className="h-3 w-3" />
+                                </div>
+                              ))}
+                            </RadioGroup>
+                          </TableCell>
+                        </TableRow>
+                      )} />
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </div>
+
+            <DialogFooter className="pt-2">
               <DialogClose asChild><Button type="button" variant="secondary">Cancel</Button></DialogClose>
               <Button type="submit" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -356,14 +462,14 @@ function DeleteRoleAlert({ role, children, onSuccess }: { role: Role; children: 
   const [isOpen, setIsOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
 
   const handleDelete = async () => {
     if (!userProfile) return;
-    const actor = { uid: userProfile.uid, email: userProfile.email };
+    const actorToken = await user!.getIdToken();
     setIsDeleting(true);
     try {
-      const result = await deleteRole(role.id, actor);
+      const result = await deleteRole(role.id, actorToken);
       if (result.success) {
         toast({ title: 'Role Deleted' });
         setIsOpen(false);
@@ -398,10 +504,38 @@ function DeleteRoleAlert({ role, children, onSuccess }: { role: Role; children: 
   );
 }
 
+const SCOPE_LABELS: Record<string, string> = {
+  own_districts: 'Own districts',
+  all_districts: 'All districts',
+  none: 'None',
+};
+
 // --- Roles Tab ---
 function RolesTab({ roles, loading, canWrite, canDel }: { roles: Role[], loading: boolean, canWrite: boolean, canDel: boolean }) {
   const roleColumns: ColumnDef<Role>[] = [
-    { accessorKey: 'name', header: 'Role' },
+    {
+      accessorKey: 'name',
+      header: 'Role',
+      cell: ({ row }) => {
+        const role = row.original;
+        return (
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{role.name}</span>
+            {role.isBuiltIn && <Badge variant="secondary" className="text-xs">Built-in</Badge>}
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: 'rank',
+      header: 'Rank',
+      cell: ({ row }) => <span className="text-muted-foreground">{row.original.rank}</span>,
+    },
+    {
+      accessorKey: 'scopeBreadth',
+      header: 'District Scope',
+      cell: ({ row }) => <span className="text-sm">{SCOPE_LABELS[row.original.scopeBreadth] ?? row.original.scopeBreadth}</span>,
+    },
     {
       id: 'actions',
       cell: ({ row }) => {
@@ -418,7 +552,7 @@ function RolesTab({ roles, loading, canWrite, canDel }: { roles: Role[], loading
                 <RoleFormDialog role={role}>
                     <DropdownMenuItem onSelect={(e) => e.preventDefault()}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
                 </RoleFormDialog>
-                {canDel && <>
+                {canDel && !role.isBuiltIn && <>
                     <DropdownMenuSeparator />
                     <DeleteRoleAlert role={role}>
                         <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:bg-destructive/10 focus:text-destructive">

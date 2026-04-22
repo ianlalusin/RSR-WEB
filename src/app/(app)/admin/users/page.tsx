@@ -26,8 +26,9 @@ import {
   RoleListDoc,
 } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
-import { isPlatformAdmin } from '@/lib/access';
+import { canViewPage } from '@/lib/access';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import UserAccessRow from './_components/user-access-row';
 
 function AccessDenied() {
@@ -56,7 +57,7 @@ export default function UserManagementPage() {
   const [districts, setDistricts] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const canManage = isPlatformAdmin(actor, isPlatformAdminClaim);
+  const canManage = canViewPage(actor, 'admin_users', { isPlatformAdminClaim });
 
   const handleSuccess = () => {
     // This function can be used to trigger a re-fetch or state update if needed
@@ -124,13 +125,21 @@ export default function UserManagementPage() {
     };
   }, [canManage, actor]);
   
+  const pendingUsers = useMemo(
+    () => users.filter(u => !u.isActive || !u.roleId),
+    [users]
+  );
+
+  const pendingUids = useMemo(() => new Set(pendingUsers.map(u => u.uid)), [pendingUsers]);
+
   const groupedUsers = useMemo(() => {
     if (!departments.length || !users.length) return [];
-    
+
     const usersByDept: Record<string, UserProfile[]> = {};
     const unassignedUsers: UserProfile[] = [];
 
     users.forEach(user => {
+        if (pendingUids.has(user.uid)) return; // shown in Pending section
         if (user.departmentId && departments.find(d => d.id === user.departmentId)) {
             if (!usersByDept[user.departmentId]) {
                 usersByDept[user.departmentId] = [];
@@ -157,7 +166,7 @@ export default function UserManagementPage() {
     
     if (unassignedUsers.length > 0) {
         result.push({
-            department: { id: 'unassigned', name: 'Unassigned', createdAt: new Date(), updatedAt: new Date(), description: 'Users not assigned to a department.' },
+            department: { id: 'unassigned', name: 'Unassigned', createdAt: new Date() as any, updatedAt: new Date() as any, description: 'Users not assigned to a department.' },
             users: unassignedUsers.sort((a,b) => (a.displayName || '').localeCompare(b.displayName || ''))
         });
     }
@@ -199,6 +208,34 @@ export default function UserManagementPage() {
                 </CardDescription>
             </CardHeader>
         </Card>
+
+        {pendingUsers.length > 0 && (
+            <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20">
+                <CardHeader>
+                    <div className="flex items-center gap-2">
+                        <CardTitle className="text-amber-800 dark:text-amber-200">Pending Review</CardTitle>
+                        <Badge variant="secondary" className="bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100">
+                            {pendingUsers.length}
+                        </Badge>
+                    </div>
+                    <CardDescription>Users with no assigned role or inactive status requiring attention.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                    {pendingUsers.map(user => (
+                        <UserAccessRow
+                            key={user.uid}
+                            user={user}
+                            actor={actor!}
+                            departments={departments}
+                            roles={roles}
+                            districts={districts}
+                            onSuccess={handleSuccess}
+                        />
+                    ))}
+                </CardContent>
+            </Card>
+        )}
+
         <div className="space-y-6">
             {groupedUsers.map(({ department, users }) => (
                 <Card key={department.id}>

@@ -9,9 +9,9 @@ import { Landmark } from 'lucide-react';
 function FullScreenLoader() {
   return (
     <div className="flex h-screen w-full items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-4">
-        <Landmark className="h-16 w-16 animate-pulse text-primary" />
-        <p className="text-muted-foreground">Loading RSR Web...</p>
+      <div className="flex flex-col items-center gap-2">
+        <span className="text-5xl font-extrabold tracking-tight text-primary animate-pulse">TAPp</span>
+        <p className="text-xs text-muted-foreground">Talino at Puso App</p>
       </div>
     </div>
   );

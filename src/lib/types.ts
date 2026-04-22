@@ -1,18 +1,8 @@
 'use server';
 
-import type { Timestamp } from "firebase/firestore";
+import type { Timestamp, FieldValue } from "firebase/firestore";
 
-export type UserRole =
-  | 'admin'
-  | 'office'
-  | 'auditor'
-  | 'procurement'
-  | 'dept_admin_finance'
-  | 'dept_admin_marketing'
-  | 'dept_admin_operations_office'
-  | 'district_head'
-  | 'district_assistant'
-  | 'coordinator';
+export type UserRole = 'platformAdmin' | 'oic' | 'officeAdmin' | 'coordinator';
 
 // NEW: PageKeys for granular page access
 export type PageKey =
@@ -22,12 +12,20 @@ export type PageKey =
   | 'organization_orgMembers'
   | 'organization_departments'
   | 'organization_roles'
-  | 'projects'
+  | 'receiving'
   | 'projects_medical'
   | 'projects_hospitals'
+  | 'projects_educational'
+  | 'projects_infrastructure'
   | 'analytics'
   | 'profile'
-  | 'admin_users';
+  | 'tasker'
+  | 'admin_users'
+  | 'socmed'
+  | 'scholarship_providers'
+  | 'scholarship_applications'
+  | 'scholarship_scholars'
+  | 'scholarship_portal';
 
 // NEW: Access levels for pages
 export type AccessLevel = 'restricted' | 'readonly' | 'readwrite' | 'full';
@@ -36,6 +34,8 @@ export type AccessLevel = 'restricted' | 'readonly' | 'readwrite' | 'full';
 export interface PageAccess {
   level: AccessLevel;
 }
+
+export type SocmedRole = 'Admin' | 'Manager' | 'Validator' | 'Checker' | 'Agent';
 
 // UPDATED: UserProfile with new access control model
 export interface UserProfile {
@@ -54,12 +54,10 @@ export interface UserProfile {
     districtIds: string[];
   };
 
-  // DEPRECATED: Old permission fields (can be removed after migration)
-  roles?: UserRole[];
-  permissions?: { [key: string]: boolean };
+  socmedRole?: SocmedRole;
 
-  createdAt: Timestamp | Date;
-  updatedAt: Timestamp | Date;
+  createdAt: Timestamp | Date | FieldValue;
+  updatedAt: Timestamp | Date | FieldValue;
 }
 
 
@@ -80,6 +78,7 @@ export interface Barangay {
   favoredVotePct: number;
   isWin: boolean;
   congVisitCount: number;
+  coordinatorUids?: string[];
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -102,15 +101,15 @@ export interface BarangayListDoc {
 export interface CaptainProfile {
   captain: {
     name: string;
-    photoURL?: string | null;
-    address: string;
-    contact: string;
-    birthday: string;
-    age: number;
-    email: string;
+    photoURL?: string;
+    address?: string;
+    contact?: string;
+    birthday?: string;
+    age?: number;
+    email?: string;
   };
-  secretary: { name: string; contact: string; };
-  councilors: { name: string; contact: string; }[];
+  secretary: { name?: string; contact?: string; };
+  councilors?: { name: string; contact?: string; }[];
   updatedAt: Timestamp;
   updatedByUid: string;
   updatedByEmail: string | null;
@@ -163,22 +162,33 @@ export interface DepartmentListDoc {
   departments: Record<string, DepartmentListItem>;
 }
 
-// UPDATED: Role is now just metadata
+export type ScopeBreadth = 'own_districts' | 'all_districts' | 'none';
+
 export interface Role {
   id: string;
   name: string;
+  rank: number;
+  scopeBreadth: ScopeBreadth;
+  preset?: Partial<Record<PageKey, AccessLevel>>;
+  isBuiltIn: boolean;
+  status: 'active' | 'archived';
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
 export interface RoleListItem {
-    name: string;
-    createdAt: Timestamp;
-    updatedAt: Timestamp;
+  name: string;
+  rank: number;
+  scopeBreadth: ScopeBreadth;
+  preset?: Partial<Record<PageKey, AccessLevel>>;
+  isBuiltIn: boolean;
+  status: 'active' | 'archived';
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface RoleListDoc {
-    roles: Record<string, RoleListItem>;
+  roles: Record<string, RoleListItem>;
 }
 
 
@@ -214,8 +224,8 @@ export interface AnalyticsData {
     departments: DepartmentAnalytics[];
 }
 
-export type AuditLogAction = 'access_update' | 'create' | 'update' | 'delete' | 'bulk_update' | 'generate_ai_profile';
-export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'medicalRecord' | 'department' | 'role' | 'hospital' | 'system';
+export type AuditLogAction = 'access_update' | 'create' | 'update' | 'delete' | 'bulk_update' | 'generate_ai_profile' | 'status_change';
+export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'medicalRecord' | 'department' | 'role' | 'hospital' | 'request' | 'task' | 'system';
 
 export interface AuditLog {
     id?: string;
@@ -227,6 +237,60 @@ export interface AuditLog {
     districtId?: string;
     details?: any;
     timestamp: Timestamp;
+}
+
+// ---- Tasker ----
+export type TaskStatus = 'created' | 'assigned' | 'acknowledged' | 'doing' | 'done' | 'failed' | 'voided';
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export const TASK_COLORS = ['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'] as const;
+export type TaskColor = typeof TASK_COLORS[number];
+
+export interface TaskRecord {
+  id: string;
+  title: string;
+  description?: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  color: TaskColor;
+  assigneeUids: string[];
+  assigneeNames: string[];
+  dueDate?: Timestamp;
+  tags?: string[];
+  createdByUid: string;
+  createdByName: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+// ---- Request / Receiving workflow ----
+export type RequestStatus = 'pending' | 'under_review' | 'approved' | 'rejected';
+
+export type MedicalSubCategory = 'medical_assistance' | 'accredited_hospitals' | 'financial_standing';
+export type EducationalSubCategory = 'ched_tulong_dunong' | 'cong_scholarship';
+export type SubCategory = MedicalSubCategory | EducationalSubCategory | string;
+
+export interface RequestRecord {
+  id: string;
+  districtId: string;
+  districtName: string;
+  brgyId: string;
+  brgyName: string;
+  proponents: string;
+  resoTitle: string;
+  resoNumber?: string;
+  description?: string;
+  dateReceived: Timestamp;
+  dateFiled: Timestamp;
+  sector: ProjectSector;
+  subCategory?: SubCategory;
+  status: RequestStatus;
+  reviewNotes?: string;
+  reviewedByUid?: string;
+  reviewedAt?: Timestamp;
+  createdByUid: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export type MedicalProjectType = 'medical_drive' | 'medical_assistance';

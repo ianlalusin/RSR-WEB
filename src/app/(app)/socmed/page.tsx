@@ -1,0 +1,1255 @@
+'use client';
+
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { useAuth } from '@/components/providers/auth-provider';
+import { canViewPage, isPlatformAdmin } from '@/lib/access';
+import { db } from '@/lib/firebase';
+import { collection, query, getDocs, onSnapshot, orderBy } from 'firebase/firestore';
+import type { UserProfile, SocmedRole } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { AlertTriangle } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  createCampaign,
+  approveCampaign,
+  rejectCampaign,
+  rolloutCampaign,
+  submitProof,
+  checkSubmission,
+  updateUserSocmedRole,
+  createSocmedUser,
+  removeSocmedUser,
+  type SubtaskDef,
+} from '@/app/socmed-actions';
+
+// ============================================================
+// TYPES
+// ============================================================
+
+interface Campaign {
+  id: string;
+  url: string;
+  title: string;
+  description: string;
+  submitted_by: string;
+  submitted_at: string;
+  status: string;
+  manager_approved_by: string | null;
+  manager_note: string | null;
+  validator_approved_by: string | null;
+  validator_note: string | null;
+  rejected_by: string | null;
+  rejection_reason: string | null;
+  deadline: string | null;
+  target_agents: string | null;
+  subtasks: string | null;
+}
+
+interface Submission {
+  id: string;
+  campaign_id: string;
+  agent_id: string;
+  subtask_type: string;
+  subtask_instruction?: string;
+  status: string;
+  proof_url: string | null;
+  proof_note: string | null;
+  submitted_at: any;
+  checked_by: string | null;
+  checker_note: string | null;
+  checked_at: any;
+}
+
+type TabKey = 'dashboard' | 'campaigns' | 'validate' | 'rollout' | 'mytasks' | 'checkqueue' | 'team' | 'users';
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+const SUBTASK_ICONS: Record<string, string> = {
+  Engage: '🔥', Comment: '💬', React: '👍',
+  Share: '🔁', Report: '🚩', Verify: '✅',
+};
+
+const SUBTASK_TYPES = ['Engage', 'Comment', 'React', 'Share', 'Report', 'Verify'];
+const SOCMED_ROLES: SocmedRole[] = ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'];
+
+// Status → Tailwind classes (badge-safe)
+const STATUS_CLASS: Record<string, string> = {
+  pending:          'bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400',
+  manager_approved: 'bg-blue-500/20 text-blue-700 border-blue-500/40 dark:text-blue-400',
+  validated:        'bg-purple-500/20 text-purple-700 border-purple-500/40 dark:text-purple-400',
+  rejected:         'bg-destructive/20 text-destructive border-destructive/40',
+  active:           'bg-green-500/20 text-green-700 border-green-500/40 dark:text-green-400',
+  completed:        'bg-primary/20 text-primary border-primary/40',
+};
+
+const SUB_STATUS_CLASS: Record<string, string> = {
+  pending:   'bg-secondary text-secondary-foreground',
+  submitted: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400',
+  approved:  'bg-green-500/20 text-green-700 border-green-500/40 dark:text-green-400',
+  rejected:  'bg-destructive/20 text-destructive border-destructive/40',
+  flagged:   'bg-orange-500/20 text-orange-700 border-orange-500/40 dark:text-orange-400',
+};
+
+// ============================================================
+// SMALL REUSABLE COMPONENTS
+// ============================================================
+
+function UserAvatar({ name, size = 'sm' }: { name: string | null | undefined; size?: 'sm' | 'md' | 'lg' }) {
+  const initials = getInitials(name);
+  return (
+    <div className={cn(
+      'rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold shrink-0',
+      size === 'sm' && 'h-6 w-6 text-[10px]',
+      size === 'md' && 'h-8 w-8 text-xs',
+      size === 'lg' && 'h-9 w-9 text-sm',
+    )}>
+      {initials}
+    </div>
+  );
+}
+
+function StatusBadge({ status, map }: { status: string; map: Record<string, string> }) {
+  return (
+    <Badge className={cn('capitalize text-xs', map[status] ?? 'bg-secondary text-secondary-foreground')}>
+      {status.replace(/_/g, ' ')}
+    </Badge>
+  );
+}
+
+function MiniBar({ value, max }: { value: number; max: number }) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return <Progress value={pct} className="h-1.5" />;
+}
+
+function EmptyState({ icon, text }: { icon: string; text: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 text-center">
+      <div className="text-4xl mb-2">{icon}</div>
+      <p className="text-sm text-muted-foreground">{text}</p>
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return <p className="text-xs font-semibold uppercase text-muted-foreground mb-2 tracking-wide">{children}</p>;
+}
+
+function FieldError({ msg }: { msg?: string }) {
+  if (!msg) return null;
+  return <p className="text-xs text-destructive mt-1">{msg}</p>;
+}
+
+function AppSelect({ value, onChange, options, className }: {
+  value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[]; className?: string;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className={cn(
+        'h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm',
+        'ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+        className,
+      )}
+    >
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function getInitials(name: string | null | undefined): string {
+  if (!name) return '?';
+  return name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+}
+
+function getUserName(uid: string, users: UserProfile[]): string {
+  return users.find(u => u.uid === uid)?.displayName || uid.slice(0, 8);
+}
+
+function getUserInitials(uid: string, users: UserProfile[]): string {
+  return getInitials(users.find(u => u.uid === uid)?.displayName);
+}
+
+function parseJson<T>(s: string | null): T | null {
+  if (!s) return null;
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+function getSocmedRole(profile: UserProfile | null, isPlatformAdminClaim: boolean): SocmedRole | null {
+  if (!profile) return null;
+  if (isPlatformAdmin(profile, isPlatformAdminClaim)) return 'Admin';
+  return profile.socmedRole || null;
+}
+
+function getVisibleTabs(role: SocmedRole | null): { key: TabKey; label: string }[] {
+  if (!role) return [];
+  const tabs: { key: TabKey; label: string; roles: SocmedRole[] }[] = [
+    { key: 'dashboard',  label: 'Dashboard',    roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
+    { key: 'campaigns',  label: 'Campaigns',    roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
+    { key: 'validate',   label: 'Validate',     roles: ['Admin', 'Manager', 'Validator'] },
+    { key: 'rollout',    label: 'Rollout',      roles: ['Admin', 'Manager'] },
+    { key: 'mytasks',    label: 'My Tasks',     roles: ['Agent'] },
+    { key: 'checkqueue', label: 'Check Queue',  roles: ['Checker'] },
+    { key: 'team',       label: 'Team',         roles: ['Admin', 'Manager'] },
+    { key: 'users',      label: 'Users',        roles: ['Admin'] },
+  ];
+  return tabs.filter(t => t.roles.includes(role));
+}
+
+// ============================================================
+// MAIN PAGE
+// ============================================================
+
+export default function SocMedPage() {
+  const { user, userProfile, isPlatformAdminClaim } = useAuth();
+  const authOpts = { isPlatformAdminClaim };
+
+  const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+
+  const socmedRole = getSocmedRole(userProfile, isPlatformAdminClaim);
+  const visibleTabs = useMemo(() => getVisibleTabs(socmedRole), [socmedRole]);
+
+  const fetchUsers = useCallback(async () => {
+    const snap = await getDocs(collection(db, 'users'));
+    setAllUsers(snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile)));
+  }, []);
+
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+  useEffect(() => {
+    const q = query(collection(db, 'socmedCampaigns'), orderBy('created_at', 'desc'));
+    const unsub = onSnapshot(q, snap => {
+      setCampaigns(snap.docs.map(d => d.data() as Campaign));
+      setLoadingData(false);
+    }, () => setLoadingData(false));
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'socmedSubmissions'));
+    const unsub = onSnapshot(q, snap => {
+      setSubmissions(snap.docs.map(d => d.data() as Submission));
+    });
+    return unsub;
+  }, []);
+
+  const getToken = useCallback(async () => {
+    if (!user) throw new Error('Not authenticated');
+    return user.getIdToken();
+  }, [user]);
+
+  if (!canViewPage(userProfile, 'socmed', authOpts)) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="text-destructive" /> Access Denied
+          </CardTitle>
+        </CardHeader>
+        <CardContent><p>You do not have permission to view this page.</p></CardContent>
+      </Card>
+    );
+  }
+
+  if (!socmedRole) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="text-destructive" /> No SocMed Role
+          </CardTitle>
+        </CardHeader>
+        <CardContent><p>No SocMed role assigned. Contact an Admin.</p></CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Page header */}
+      <div className="flex items-center gap-3">
+        <h2 className="text-xl font-semibold">SocMed</h2>
+        <Badge>{socmedRole}</Badge>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex flex-wrap gap-1 border-b pb-1">
+        {visibleTabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={cn(
+              'px-3 py-2 text-sm rounded-t-md transition-colors',
+              activeTab === t.key
+                ? 'bg-accent text-accent-foreground font-medium'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {loadingData ? (
+        <EmptyState icon="⏳" text="Loading..." />
+      ) : (
+        <>
+          {activeTab === 'dashboard' && (
+            <DashboardTab campaigns={campaigns} submissions={submissions} users={allUsers} />
+          )}
+          {activeTab === 'campaigns' && (
+            <CampaignsTab campaigns={campaigns} submissions={submissions} users={allUsers} getToken={getToken} />
+          )}
+          {activeTab === 'validate' && (
+            <ValidateTab campaigns={campaigns} users={allUsers} socmedRole={socmedRole} getToken={getToken} />
+          )}
+          {activeTab === 'rollout' && (
+            <RolloutTab campaigns={campaigns} users={allUsers} getToken={getToken} />
+          )}
+          {activeTab === 'mytasks' && user && (
+            <MyTasksTab campaigns={campaigns} submissions={submissions} currentUid={user.uid} getToken={getToken} />
+          )}
+          {activeTab === 'checkqueue' && user && (
+            <CheckQueueTab submissions={submissions} campaigns={campaigns} users={allUsers} currentUid={user.uid} getToken={getToken} />
+          )}
+          {activeTab === 'team' && (
+            <TeamTab submissions={submissions} users={allUsers} />
+          )}
+          {activeTab === 'users' && (
+            <UsersTab users={allUsers} getToken={getToken} refreshUsers={fetchUsers} currentUid={user?.uid || ''} />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// TAB: DASHBOARD
+// ============================================================
+
+function DashboardTab({ campaigns, submissions, users }: {
+  campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[];
+}) {
+  const activeCampaigns = campaigns.filter(c => c.status === 'active');
+  const pendingValidation = campaigns.filter(c => c.status === 'pending' || c.status === 'manager_approved');
+  const toCheck = submissions.filter(s => s.status === 'submitted');
+  const approved = submissions.filter(s => s.status === 'approved');
+
+  const stats = [
+    { label: 'Active Campaigns',       value: activeCampaigns.length,    color: 'text-green-600 dark:text-green-400' },
+    { label: 'Pending Validation',      value: pendingValidation.length,  color: 'text-yellow-600 dark:text-yellow-400' },
+    { label: 'Submissions to Check',    value: toCheck.length,            color: 'text-blue-600 dark:text-blue-400' },
+    { label: 'Tasks Approved',          value: approved.length,           color: 'text-primary' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {stats.map(s => (
+          <Card key={s.label}>
+            <CardContent className="pt-4">
+              <p className="text-xs font-semibold uppercase text-muted-foreground">{s.label}</p>
+              <p className={cn('text-3xl font-bold mt-1', s.color)}>{s.value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div>
+        <SectionLabel>Active Campaigns</SectionLabel>
+        {activeCampaigns.length === 0 ? (
+          <EmptyState icon="📢" text="No active campaigns yet" />
+        ) : (
+          <div className="space-y-3">
+            {activeCampaigns.map(c => {
+              const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
+              const agents: string[] = parseJson(c.target_agents) || [];
+              const totalExpected = subtasks.length * agents.length;
+              const approvedCount = submissions.filter(s => s.campaign_id === c.id && s.status === 'approved').length;
+              return (
+                <Card key={c.id}>
+                  <CardContent className="pt-4 space-y-3">
+                    <div className="flex justify-between items-start flex-wrap gap-2">
+                      <div>
+                        <p className="font-semibold text-sm">{c.title}</p>
+                        <a href={c.url} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-blue-600 hover:underline dark:text-blue-400 break-all">{c.url}</a>
+                      </div>
+                      {c.deadline && <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400">Due: {c.deadline}</Badge>}
+                    </div>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {subtasks.map((st, i) => (
+                        <Badge key={i} variant="secondary">{SUBTASK_ICONS[st.type] || ''} {st.type}</Badge>
+                      ))}
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Progress: {approvedCount}/{totalExpected}</p>
+                      <MiniBar value={approvedCount} max={totalExpected} />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// TAB: CAMPAIGNS
+// ============================================================
+
+function CampaignsTab({ campaigns, submissions, users, getToken }: {
+  campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[]; getToken: () => Promise<string>;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [url, setUrl] = useState('');
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    const errs: Record<string, string> = {};
+    if (!title.trim()) errs.title = 'Title is required';
+    if (!url.trim()) errs.url = 'URL is required';
+    else if (!url.startsWith('http')) errs.url = 'URL must start with http';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    setSubmitting(true); setErrors({});
+    const token = await getToken();
+    const result = await createCampaign({ url, title, description: desc }, token);
+    setSubmitting(false);
+
+    if (result.success) {
+      setUrl(''); setTitle(''); setDesc(''); setShowForm(false);
+    } else {
+      setErrors({ form: result.error || 'Failed to submit' });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <SectionLabel>Campaigns</SectionLabel>
+        <Button size="sm" variant={showForm ? 'outline' : 'default'} onClick={() => setShowForm(!showForm)}>
+          {showForm ? 'Cancel' : '+ Submit FB Post'}
+        </Button>
+      </div>
+
+      {showForm && (
+        <Card>
+          <CardContent className="pt-4 space-y-3">
+            <div>
+              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Campaign Title" />
+              <FieldError msg={errors.title} />
+            </div>
+            <div>
+              <Input value={url} onChange={e => setUrl(e.target.value)} placeholder="Facebook Post URL (https://...)" />
+              <FieldError msg={errors.url} />
+            </div>
+            <Textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description (optional)" rows={3} />
+            <FieldError msg={errors.form} />
+            <div className="flex justify-end">
+              <Button onClick={handleSubmit} disabled={submitting}>
+                {submitting ? 'Submitting...' : 'Submit Campaign'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {campaigns.length === 0 ? (
+        <EmptyState icon="📋" text="No campaigns yet. Be the first to submit!" />
+      ) : (
+        <div className="space-y-3">
+          {campaigns.map(c => {
+            const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
+            const agents: string[] = parseJson(c.target_agents) || [];
+            const totalExpected = subtasks.length * agents.length;
+            const approvedCount = submissions.filter(s => s.campaign_id === c.id && s.status === 'approved').length;
+
+            return (
+              <Card key={c.id}>
+                <CardContent className="pt-4 space-y-3">
+                  <div className="flex justify-between items-start flex-wrap gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">{c.title}</span>
+                        <StatusBadge status={c.status} map={STATUS_CLASS} />
+                      </div>
+                      <a href={c.url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:underline dark:text-blue-400 break-all">{c.url}</a>
+                      {c.description && <p className="text-xs text-muted-foreground mt-1">{c.description}</p>}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
+                    <span className="text-xs text-muted-foreground">{getUserName(c.submitted_by, users)}</span>
+                    <span className="text-xs text-muted-foreground/60">{c.submitted_at}</span>
+                  </div>
+
+                  {subtasks.length > 0 && (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {subtasks.map((st, i) => (
+                        <Badge key={i} variant="secondary">{SUBTASK_ICONS[st.type] || ''} {st.type}</Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  {c.status === 'rejected' && c.rejection_reason && (
+                    <div className="bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-xs text-destructive">
+                      Rejected: {c.rejection_reason}
+                    </div>
+                  )}
+
+                  {c.status === 'active' && totalExpected > 0 && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Progress: {approvedCount}/{totalExpected}</p>
+                      <MiniBar value={approvedCount} max={totalExpected} />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// TAB: VALIDATE
+// ============================================================
+
+function ValidateTab({ campaigns, users, socmedRole, getToken }: {
+  campaigns: Campaign[]; users: UserProfile[]; socmedRole: SocmedRole; getToken: () => Promise<string>;
+}) {
+  const isManager = socmedRole === 'Manager' || socmedRole === 'Admin';
+  const isValidator = socmedRole === 'Validator' || socmedRole === 'Admin';
+
+  const managerQueue = campaigns.filter(c => c.status === 'pending');
+  const validatorQueue = campaigns.filter(c => c.status === 'manager_approved');
+
+  return (
+    <div className="space-y-6">
+      {isManager && (
+        <div className="space-y-3">
+          <SectionLabel>Manager Approval Queue</SectionLabel>
+          {managerQueue.length === 0 ? (
+            <EmptyState icon="✅" text="No campaigns pending manager approval" />
+          ) : (
+            <div className="space-y-3">
+              {managerQueue.map(c => (
+                <ValidateCard key={c.id} campaign={c} users={users} role="manager" getToken={getToken} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isValidator && (
+        <div className="space-y-3">
+          <SectionLabel>Validator Approval Queue</SectionLabel>
+          {validatorQueue.length === 0 ? (
+            <EmptyState icon="✅" text="No campaigns pending validation" />
+          ) : (
+            <div className="space-y-3">
+              {validatorQueue.map(c => (
+                <ValidateCard key={c.id} campaign={c} users={users} role="validator" getToken={getToken} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ValidateCard({ campaign: c, users, role, getToken }: {
+  campaign: Campaign; users: UserProfile[]; role: 'manager' | 'validator'; getToken: () => Promise<string>;
+}) {
+  const [note, setNote] = useState('');
+  const [rejectReason, setRejectReason] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const handleApprove = async () => {
+    setBusy(true);
+    const token = await getToken();
+    await approveCampaign(c.id, role, note, token);
+    setBusy(false); setNote(''); setRejectReason('');
+  };
+
+  const handleReject = async () => {
+    setBusy(true);
+    const token = await getToken();
+    await rejectCampaign(c.id, rejectReason, token);
+    setBusy(false); setNote(''); setRejectReason('');
+  };
+
+  return (
+    <Card>
+      <CardContent className="pt-4 space-y-3">
+        <div>
+          <p className="font-semibold text-sm">{c.title}</p>
+          <a href={c.url} target="_blank" rel="noopener noreferrer"
+            className="text-xs text-blue-600 hover:underline dark:text-blue-400">{c.url}</a>
+          {c.description && <p className="text-xs text-muted-foreground mt-1">{c.description}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
+          <span className="text-xs text-muted-foreground">Submitted by {getUserName(c.submitted_by, users)}</span>
+        </div>
+        <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Approval note (optional)" rows={2} />
+        <Input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Rejection reason (required to reject)" />
+        <div className="flex gap-2">
+          <Button variant="default" className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={busy}>
+            {busy ? 'Processing...' : 'Approve'}
+          </Button>
+          <Button variant="destructive" onClick={handleReject} disabled={busy || !rejectReason.trim()}>
+            Reject
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// TAB: ROLLOUT
+// ============================================================
+
+function RolloutTab({ campaigns, users, getToken }: {
+  campaigns: Campaign[]; users: UserProfile[]; getToken: () => Promise<string>;
+}) {
+  const validatedCampaigns = campaigns.filter(c => c.status === 'validated');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  if (selectedId) {
+    const campaign = campaigns.find(c => c.id === selectedId);
+    if (!campaign) { setSelectedId(null); return null; }
+    return <RolloutConfig campaign={campaign} users={users} getToken={getToken} onBack={() => setSelectedId(null)} />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <SectionLabel>Validated Campaigns Ready for Rollout</SectionLabel>
+      {validatedCampaigns.length === 0 ? (
+        <EmptyState icon="🚀" text="No validated campaigns to roll out" />
+      ) : (
+        <div className="space-y-3">
+          {validatedCampaigns.map(c => (
+            <Card key={c.id}>
+              <CardContent className="pt-4 flex justify-between items-center flex-wrap gap-3">
+                <div>
+                  <p className="font-semibold text-sm">{c.title}</p>
+                  <a href={c.url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline dark:text-blue-400">{c.url}</a>
+                </div>
+                <Button size="sm" onClick={() => setSelectedId(c.id)}>Configure Rollout</Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RolloutConfig({ campaign, users, getToken, onBack }: {
+  campaign: Campaign; users: UserProfile[]; getToken: () => Promise<string>; onBack: () => void;
+}) {
+  const [subtasks, setSubtasks] = useState<SubtaskDef[]>([]);
+  const [stType, setStType] = useState(SUBTASK_TYPES[0]);
+  const [stInstruction, setStInstruction] = useState('');
+  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
+  const [deadline, setDeadline] = useState(new Date().toISOString().split('T')[0]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const agents = users.filter(u => u.socmedRole === 'Agent' && u.isActive);
+
+  const addSubtask = () => {
+    if (!stInstruction.trim()) return;
+    setSubtasks([...subtasks, { type: stType, instruction: stInstruction }]);
+    setStInstruction('');
+  };
+
+  const removeSubtask = (i: number) => setSubtasks(subtasks.filter((_, idx) => idx !== i));
+
+  const toggleAgent = (uid: string) => {
+    const next = new Set(selectedAgents);
+    if (next.has(uid)) next.delete(uid); else next.add(uid);
+    setSelectedAgents(next);
+  };
+
+  const handleRollout = async () => {
+    setBusy(true); setError('');
+    const token = await getToken();
+    const result = await rolloutCampaign(campaign.id, subtasks, Array.from(selectedAgents), deadline, token);
+    setBusy(false);
+    if (result.success) onBack();
+    else setError(result.error || 'Rollout failed');
+  };
+
+  return (
+    <div className="space-y-4">
+      <button onClick={onBack} className="text-sm text-primary hover:underline flex items-center gap-1">
+        ← Back to list
+      </button>
+
+      <Card>
+        <CardContent className="pt-4">
+          <p className="font-semibold">{campaign.title}</p>
+          <a href={campaign.url} target="_blank" rel="noopener noreferrer"
+            className="text-xs text-blue-600 hover:underline dark:text-blue-400">{campaign.url}</a>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Subtasks */}
+        <Card>
+          <CardContent className="pt-4 space-y-3">
+            <SectionLabel>Subtasks</SectionLabel>
+            {subtasks.length > 0 && (
+              <div className="space-y-1.5">
+                {subtasks.map((st, i) => (
+                  <div key={i} className="flex items-center justify-between bg-muted rounded-lg px-3 py-2 text-sm">
+                    <span>{SUBTASK_ICONS[st.type] || ''} {st.type}: {st.instruction}</span>
+                    <button onClick={() => removeSubtask(i)} className="text-destructive ml-2 hover:opacity-70 text-base leading-none">&times;</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 flex-wrap">
+              <AppSelect
+                value={stType}
+                onChange={setStType}
+                options={SUBTASK_TYPES.map(t => ({ value: t, label: `${SUBTASK_ICONS[t]} ${t}` }))}
+                className="w-36"
+              />
+              <Input
+                className="flex-1 min-w-32"
+                value={stInstruction}
+                onChange={e => setStInstruction(e.target.value)}
+                placeholder="Instruction"
+                onKeyDown={e => e.key === 'Enter' && addSubtask()}
+              />
+              <Button size="sm" variant="outline" onClick={addSubtask}>Add</Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Agents & Deadline */}
+        <Card>
+          <CardContent className="pt-4 space-y-3">
+            <SectionLabel>Agents</SectionLabel>
+            {agents.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No agents found. Assign Agent role in Users tab.</p>
+            ) : (
+              <ScrollArea className="h-40">
+                <div className="space-y-2 pr-2">
+                  {agents.map(a => (
+                    <label key={a.uid} className="flex items-center gap-2 cursor-pointer text-sm">
+                      <Checkbox
+                        checked={selectedAgents.has(a.uid)}
+                        onCheckedChange={() => toggleAgent(a.uid)}
+                      />
+                      <UserAvatar name={a.displayName} size="sm" />
+                      <span>{a.displayName || a.email}</span>
+                    </label>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+            <div>
+              <SectionLabel>Deadline</SectionLabel>
+              <Input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end">
+        <Button
+          onClick={handleRollout}
+          disabled={subtasks.length === 0 || selectedAgents.size === 0 || busy}
+          className="bg-green-600 hover:bg-green-700"
+        >
+          {busy ? 'Rolling out...' : `Rollout (${subtasks.length} subtasks × ${selectedAgents.size} agents)`}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// TAB: MY TASKS (Agent)
+// ============================================================
+
+function MyTasksTab({ campaigns, submissions, currentUid, getToken }: {
+  campaigns: Campaign[]; submissions: Submission[]; currentUid: string; getToken: () => Promise<string>;
+}) {
+  const mySubmissions = submissions.filter(s => s.agent_id === currentUid);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, Submission[]>();
+    for (const s of mySubmissions) {
+      const arr = map.get(s.campaign_id) || [];
+      arr.push(s);
+      map.set(s.campaign_id, arr);
+    }
+    return map;
+  }, [mySubmissions]);
+
+  if (grouped.size === 0) return <EmptyState icon="📝" text="No tasks assigned to you yet" />;
+
+  return (
+    <div className="space-y-4">
+      {Array.from(grouped.entries()).map(([campaignId, subs]) => {
+        const campaign = campaigns.find(c => c.id === campaignId);
+        if (!campaign) return null;
+        return (
+          <Card key={campaignId}>
+            <CardContent className="pt-4 space-y-3">
+              <div className="flex justify-between items-start flex-wrap gap-2">
+                <div>
+                  <p className="font-semibold text-sm">{campaign.title}</p>
+                  <a href={campaign.url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline dark:text-blue-400">{campaign.url}</a>
+                </div>
+                {campaign.deadline && (
+                  <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400">
+                    Due: {campaign.deadline}
+                  </Badge>
+                )}
+              </div>
+              <div className="space-y-2">
+                {subs.map(s => (
+                  <SubmissionCard key={s.id} submission={s} getToken={getToken} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function SubmissionCard({ submission: s, getToken }: { submission: Submission; getToken: () => Promise<string> }) {
+  const [proofUrl, setProofUrl] = useState('');
+  const [proofNote, setProofNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmitProof = async () => {
+    if (!proofUrl.trim()) { setError('Proof URL is required'); return; }
+    setBusy(true); setError('');
+    const token = await getToken();
+    const result = await submitProof(s.id, proofUrl, proofNote, token);
+    setBusy(false);
+    if (result.success) { setProofUrl(''); setProofNote(''); }
+    else setError(result.error || 'Failed');
+  };
+
+  return (
+    <div className="bg-muted rounded-lg p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-lg">{SUBTASK_ICONS[s.subtask_type] || ''}</span>
+        <span className="font-semibold text-sm">{s.subtask_type}</span>
+        <StatusBadge status={s.status} map={SUB_STATUS_CLASS} />
+      </div>
+      {s.subtask_instruction && <p className="text-xs text-muted-foreground">{s.subtask_instruction}</p>}
+
+      {s.checker_note && s.status === 'flagged' && (
+        <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-2 text-xs text-orange-700 dark:text-orange-400">
+          Flagged: {s.checker_note}
+        </div>
+      )}
+      {s.checker_note && s.status === 'rejected' && (
+        <div className="bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-xs text-destructive">
+          Rejected: {s.checker_note}
+        </div>
+      )}
+      {s.checker_note && s.status === 'approved' && (
+        <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2 text-xs text-green-700 dark:text-green-400">
+          Approved: {s.checker_note}
+        </div>
+      )}
+
+      {(s.status === 'pending' || s.status === 'rejected' || s.status === 'flagged') && (
+        <div className="space-y-2">
+          <Input value={proofUrl} onChange={e => setProofUrl(e.target.value)} placeholder="Proof URL (required)" />
+          <Input value={proofNote} onChange={e => setProofNote(e.target.value)} placeholder="Note (optional)" />
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex justify-end">
+            <Button size="sm" onClick={handleSubmitProof} disabled={busy}>
+              {busy ? 'Submitting...' : 'Submit Proof'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {s.status === 'submitted' && (
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
+          Awaiting checker review —{' '}
+          <a href={s.proof_url || ''} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+            {s.proof_url}
+          </a>
+        </div>
+      )}
+
+      {s.status === 'approved' && s.proof_url && !s.checker_note && (
+        <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2 text-xs text-green-700 dark:text-green-400">
+          Approved —{' '}
+          <a href={s.proof_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+            {s.proof_url}
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// TAB: CHECK QUEUE (Checker)
+// ============================================================
+
+function CheckQueueTab({ submissions, campaigns, users, currentUid, getToken }: {
+  submissions: Submission[]; campaigns: Campaign[]; users: UserProfile[]; currentUid: string; getToken: () => Promise<string>;
+}) {
+  const toCheck = submissions.filter(s => s.status === 'submitted');
+  const recentlyChecked = submissions
+    .filter(s => s.checked_by === currentUid && ['approved', 'rejected', 'flagged'].includes(s.status))
+    .sort((a, b) => (b.checked_at?.seconds || 0) - (a.checked_at?.seconds || 0))
+    .slice(0, 5);
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <SectionLabel>Submissions to Review</SectionLabel>
+        {toCheck.length === 0 ? (
+          <EmptyState icon="🔍" text="No submissions to check right now" />
+        ) : (
+          <div className="space-y-3">
+            {toCheck.map(s => (
+              <CheckCard key={s.id} submission={s} campaigns={campaigns} users={users} getToken={getToken} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {recentlyChecked.length > 0 && (
+        <div className="space-y-2">
+          <SectionLabel>Recently Reviewed</SectionLabel>
+          {recentlyChecked.map(s => {
+            const campaign = campaigns.find(c => c.id === s.campaign_id);
+            return (
+              <Card key={s.id} className="opacity-70">
+                <CardContent className="pt-3 pb-3 flex items-center gap-2 flex-wrap">
+                  <UserAvatar name={getUserName(s.agent_id, users)} size="sm" />
+                  <span className="text-xs">{getUserName(s.agent_id, users)}</span>
+                  <Badge variant="secondary">{s.subtask_type}</Badge>
+                  <StatusBadge status={s.status} map={SUB_STATUS_CLASS} />
+                  {campaign && <span className="text-xs text-muted-foreground">{campaign.title}</span>}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CheckCard({ submission: s, campaigns, users, getToken }: {
+  submission: Submission; campaigns: Campaign[]; users: UserProfile[]; getToken: () => Promise<string>;
+}) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const campaign = campaigns.find(c => c.id === s.campaign_id);
+
+  const handleCheck = async (status: 'approved' | 'rejected' | 'flagged') => {
+    setBusy(true);
+    const token = await getToken();
+    await checkSubmission(s.id, status, note, token);
+    setBusy(false); setNote('');
+  };
+
+  return (
+    <Card>
+      <CardContent className="pt-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <UserAvatar name={getUserName(s.agent_id, users)} size="md" />
+          <div>
+            <p className="font-semibold text-sm">{getUserName(s.agent_id, users)}</p>
+            {s.submitted_at && (
+              <p className="text-xs text-muted-foreground">
+                {s.submitted_at?.toDate ? s.submitted_at.toDate().toLocaleDateString() : ''}
+              </p>
+            )}
+          </div>
+          <Badge variant="secondary">{s.subtask_type}</Badge>
+          {campaign && <Badge variant="outline">{campaign.title}</Badge>}
+        </div>
+
+        <a href={s.proof_url || '#'} target="_blank" rel="noopener noreferrer"
+          className="text-sm text-blue-600 hover:underline dark:text-blue-400 break-all block">
+          {s.proof_url}
+        </a>
+
+        {s.proof_note && (
+          <div className="bg-muted rounded-lg px-3 py-2 text-xs text-muted-foreground">
+            Agent note: {s.proof_note}
+          </div>
+        )}
+
+        <Input value={note} onChange={e => setNote(e.target.value)} placeholder="Checker note (required for reject/flag)" />
+        <div className="flex gap-2 flex-wrap">
+          <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleCheck('approved')} disabled={busy}>
+            Approve ✅
+          </Button>
+          <Button size="sm" variant="destructive" onClick={() => handleCheck('rejected')} disabled={busy || !note.trim()}>
+            Reject ✗
+          </Button>
+          <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-white" onClick={() => handleCheck('flagged')} disabled={busy || !note.trim()}>
+            Flag 🚩
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// TAB: TEAM
+// ============================================================
+
+function TeamTab({ submissions, users }: { submissions: Submission[]; users: UserProfile[] }) {
+  const agents = users.filter(u => u.socmedRole === 'Agent');
+
+  const agentStats = useMemo(() => {
+    return agents.map(a => {
+      const subs = submissions.filter(s => s.agent_id === a.uid);
+      const approved = subs.filter(s => s.status === 'approved').length;
+      const submitted = subs.filter(s => s.status === 'submitted').length;
+      const flagged = subs.filter(s => s.status === 'flagged').length;
+      const rejected = subs.filter(s => s.status === 'rejected').length;
+      const pending = subs.filter(s => s.status === 'pending').length;
+      const total = subs.length;
+      const rate = total > 0 ? Math.round((approved / total) * 100) : 0;
+      return { user: a, approved, submitted, flagged, rejected, pending, total, rate };
+    });
+  }, [agents, submissions]);
+
+  const exportCsv = () => {
+    const header = 'Name,Role,Total,Approved,Submitted,Flagged,Rejected,Pending,Approval Rate %';
+    const rows = agentStats.map(a =>
+      `"${a.user.displayName || ''}","Agent",${a.total},${a.approved},${a.submitted},${a.flagged},${a.rejected},${a.pending},${a.rate}`
+    );
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = 'socmed-team-report.csv'; link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <SectionLabel>Agent Performance</SectionLabel>
+        <Button size="sm" variant="outline" onClick={exportCsv}>Export CSV</Button>
+      </div>
+
+      {agents.length === 0 ? (
+        <EmptyState icon="👥" text="No agents found" />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {agentStats.map(a => (
+            <Card key={a.user.uid}>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center gap-3">
+                  <UserAvatar name={a.user.displayName} size="lg" />
+                  <div>
+                    <p className="font-semibold text-sm">{a.user.displayName || a.user.email}</p>
+                    <p className="text-xs text-muted-foreground">Total: {a.total} · Approval rate: {a.rate}%</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[
+                    { label: 'Approved', val: a.approved, cls: 'text-green-600 dark:text-green-400' },
+                    { label: 'Submitted', val: a.submitted, cls: 'text-yellow-600 dark:text-yellow-400' },
+                    { label: 'Flagged', val: a.flagged, cls: 'text-orange-600 dark:text-orange-400' },
+                    { label: 'Rejected', val: a.rejected, cls: 'text-destructive' },
+                    { label: 'Pending', val: a.pending, cls: 'text-muted-foreground' },
+                  ].map(st => (
+                    <div key={st.label} className="bg-muted rounded-lg px-1 py-2 text-center">
+                      <p className={cn('text-base font-bold', st.cls)}>{st.val}</p>
+                      <p className="text-[9px] uppercase text-muted-foreground">{st.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <MiniBar value={a.rate} max={100} />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// TAB: USERS (Admin)
+// ============================================================
+
+function UsersTab({ users, getToken, refreshUsers, currentUid }: {
+  users: UserProfile[]; getToken: () => Promise<string>; refreshUsers: () => Promise<void>; currentUid: string;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<SocmedRole>('Agent');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+
+  const handleCreate = async () => {
+    const errs: Record<string, string> = {};
+    if (!name.trim()) errs.name = 'Name is required';
+    if (!email.trim()) errs.email = 'Email is required';
+    if (!password.trim()) errs.password = 'Password is required';
+    else if (password.length < 6) errs.password = 'Min 6 characters';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    setBusy(true); setErrors({});
+    const token = await getToken();
+    const result = await createSocmedUser(name, email, password, role, token);
+    setBusy(false);
+
+    if (result.success) {
+      setName(''); setEmail(''); setPassword(''); setShowForm(false);
+      refreshUsers();
+    } else {
+      setErrors({ form: result.error || 'Failed' });
+    }
+  };
+
+  const handleRoleChange = async (uid: string, newRole: string) => {
+    const token = await getToken();
+    await updateUserSocmedRole(uid, newRole || null, token);
+    refreshUsers();
+  };
+
+  const handleRemove = async (uid: string) => {
+    const token = await getToken();
+    await removeSocmedUser(uid, token);
+    refreshUsers();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <SectionLabel>SocMed Users</SectionLabel>
+        <Button size="sm" variant={showForm ? 'outline' : 'default'} onClick={() => setShowForm(!showForm)}>
+          {showForm ? 'Cancel' : '+ Add User'}
+        </Button>
+      </div>
+
+      {showForm && (
+        <Card>
+          <CardContent className="pt-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Input value={name} onChange={e => setName(e.target.value)} placeholder="Full Name" />
+                <FieldError msg={errors.name} />
+              </div>
+              <div>
+                <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" />
+                <FieldError msg={errors.email} />
+              </div>
+              <div>
+                <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" />
+                <FieldError msg={errors.password} />
+              </div>
+              <AppSelect
+                value={role}
+                onChange={v => setRole(v as SocmedRole)}
+                options={SOCMED_ROLES.map(r => ({ value: r, label: r }))}
+              />
+            </div>
+            <FieldError msg={errors.form} />
+            <div className="flex justify-end">
+              <Button onClick={handleCreate} disabled={busy}>{busy ? 'Creating...' : 'Create User'}</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="space-y-2">
+        {users.filter(u => u.isActive).map(u => {
+          const isPrimary = u.roleId === 'platformAdmin';
+          return (
+            <Card key={u.uid}>
+              <CardContent className="pt-3 pb-3 flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <UserAvatar name={u.displayName} size="md" />
+                  <div>
+                    <p className="font-semibold text-sm">{u.displayName || 'Unnamed'}</p>
+                    <p className="text-xs text-muted-foreground">{u.email}</p>
+                  </div>
+                  {u.roleId && <Badge variant="outline" className="text-xs">{u.roleId}</Badge>}
+                  {u.socmedRole && <Badge className="text-xs">{u.socmedRole}</Badge>}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <AppSelect
+                    value={u.socmedRole || ''}
+                    onChange={v => handleRoleChange(u.uid, v)}
+                    options={[{ value: '', label: 'No SocMed role' }, ...SOCMED_ROLES.map(r => ({ value: r, label: r }))]}
+                    className="w-44"
+                  />
+                  {u.socmedRole && !isPrimary && u.uid !== currentUid && (
+                    <Button size="sm" variant="outline" className="text-destructive border-destructive/50 hover:bg-destructive/10"
+                      onClick={() => handleRemove(u.uid)}>
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

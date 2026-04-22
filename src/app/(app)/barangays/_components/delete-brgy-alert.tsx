@@ -29,18 +29,18 @@ export default function DeleteBrgyAlert({ barangayId, barangayName, children, on
   const [isOpen, setIsOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
 
   const handleDelete = async () => {
     if (!userProfile) {
       toast({ variant: 'destructive', title: 'Not authenticated' });
       return;
     }
-    const actor = { uid: userProfile.uid, email: userProfile.email };
+    const actorToken = await user!.getIdToken();
 
     setIsDeleting(true);
     try {
-      const result = await deleteBarangay(barangayId, actor);
+      const result = await deleteBarangay(barangayId, actorToken);
       if (result.success) {
         toast({
           title: 'Barangay Deleted',

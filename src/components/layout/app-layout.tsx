@@ -12,7 +12,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen w-full bg-muted/40">
       {isMobile ? <BottomNav /> : <Sidebar />}
-      <div className={`flex flex-col w-full ${isMobile ? 'pb-16' : 'sm:pl-14'}`}>
+      <div className={`flex flex-col w-full ${isMobile ? 'pb-16' : 'sm:pl-48'}`}>
         <Header />
         <main className="flex-1 p-4 sm:p-6">{children}</main>
       </div>

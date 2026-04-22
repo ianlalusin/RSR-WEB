@@ -19,6 +19,14 @@ service cloud.firestore {
       return signedIn() && (me().isActive == true);
     }
 
+    function isOIC() {
+      return isActiveUser() && me().roleId == 'oic';
+    }
+
+    function isAdminOrOIC() {
+      return isPlatformAdmin() || isOIC();
+    }
+
     // District-only scope: user.access.districtIds
     function hasDistrict(districtId) {
       return isPlatformAdmin() || (isActiveUser() && (districtId in me().access.districtIds));
@@ -28,29 +36,50 @@ service cloud.firestore {
     match /{docPath=**} {
       allow read, write: if isPlatformAdmin();
     }
-    
-    // -------- Lists --------
+
+    // -------- Lists (read-only for active users; all writes via Admin SDK) --------
     match /lists/{listId} {
-      allow read: if signedIn();
-      allow write: if false; // Writes are admin-only via bypass
+      allow read: if isActiveUser();
+      allow write: if false;
     }
 
     // -------- Users --------
     match /users/{uid} {
-      // Users can read their own profile; Platform Admin already bypasses above.
+      // Read own profile
       allow read: if signedIn() && request.auth.uid == uid;
 
-      // Allow users to create their own profile upon first sign-in.
-      // The client-side logic ensures they are created as 'inactive' with restricted permissions.
-      allow create: if request.auth.uid == uid;
+      // OIC and platform admin can read all profiles (for admin page real-time subscriptions)
+      allow read: if isAdminOrOIC();
 
-      // Only Platform Admin can update/delete user profiles (covered by bypass).
-      // Self-edits for displayName/photoURL are handled by server actions that check UID.
-      allow update, delete: if false;
+      // Self-provision on first sign-in: user creates their own doc with safe defaults only.
+      // isActive must be false and roleId must be absent (admin assigns these later).
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.isActive == false
+        && !('roleId' in request.resource.data)
+        && request.resource.data.uid == uid;
+
+      // Users can self-update display name and photo only
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+
+      // No client-side deletes
+      allow delete: if false;
     }
 
-    // -------- Org metadata (departments/positions) --------
-    // DEPRECATED in favor of /lists/{listId} docs. Lock them down.
+    // -------- Barangays --------
+    match /barangays/{brgyId} {
+      allow read: if isActiveUser();
+      allow write: if false; // All writes via Admin SDK server actions
+    }
+
+    match /barangays/{brgyId}/{subcollection=**} {
+      allow read: if isActiveUser();
+      allow write: if false;
+    }
+
+    // -------- Org metadata (deprecated collections — locked) --------
     match /departments/{deptId} {
       allow read, write: if false;
     }
@@ -65,23 +94,50 @@ service cloud.firestore {
     }
 
     // -------- Field data (district-scoped) --------
-    // Recommended structure: /field/districts/{districtId}/...
     match /field/districts/{districtId}/{doc=**} {
       allow read, write: if hasDistrict(districtId);
     }
 
     // -------- Medical Records --------
     match /medicalRecords/{recordId} {
-        allow read, write: if hasDistrict(request.resource.data.districtId);
-        allow create: if isActiveUser();
+      allow read: if hasDistrict(resource.data.districtId);
+      allow write: if false; // All writes via Admin SDK server actions
     }
 
-    // -------- Audit logs --------
+    // -------- Project Records --------
+    match /projectRecords/{recordId} {
+      allow read: if isActiveUser();
+      allow write: if false;
+    }
+
+    // -------- Requests (Receiving workflow) --------
+    match /requests/{requestId} {
+      allow read: if hasDistrict(resource.data.districtId);
+      allow write: if false; // All writes via Admin SDK server actions
+    }
+
+    // -------- Tasks (Kanban) --------
+    match /tasks/{taskId} {
+      allow read: if isActiveUser();
+      allow write: if false; // All writes via Admin SDK server actions
+    }
+
+    // -------- SocMed Campaigns --------
+    match /socmedCampaigns/{campaignId} {
+      allow read: if isActiveUser();
+      allow write: if false;
+    }
+
+    // -------- SocMed Submissions --------
+    match /socmedSubmissions/{submissionId} {
+      allow read: if isActiveUser();
+      allow write: if false;
+    }
+
+    // -------- Audit logs (write via Admin SDK; OIC+ can read for auditing) --------
     match /auditLogs/{logId} {
-      // Platform Admin bypass covers full access.
-      // Others can create logs (optional). You can tighten later.
-      allow create: if signedIn();
-      allow read, update, delete: if false;
+      allow read: if isAdminOrOIC();
+      allow write: if false;
     }
 
     // -------- Default deny --------

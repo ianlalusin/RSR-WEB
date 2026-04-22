@@ -68,7 +68,7 @@ export const columns: ColumnDef<Barangay>[] = [
   },
   {
     accessorKey: 'favoredVotePct',
-    header: 'Favored Vote %',
+    header: 'RSR Vote %',
     cell: ({ row }) => {
         const percentage = parseFloat(row.getValue('favoredVotePct'));
         return <div className="text-right font-medium">{percentage.toFixed(1)}%</div>
