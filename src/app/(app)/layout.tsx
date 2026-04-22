@@ -31,7 +31,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
       return;
     }
     if (!userProfile?.isActive) {
-      router.replace('/login?reason=inactive');
+      router.replace('/pending');
       return;
     }
   }, [loading, user, userProfile, router, pathname]);

@@ -5,6 +5,8 @@ import {
   onAuthStateChanged,
   User,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
   signInWithPopup,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
@@ -21,6 +23,7 @@ interface AuthContextType {
   isPlatformAdminClaim: boolean;
   loading: boolean;
   login: (email: string, pass: string) => Promise<any>;
+  signup: (email: string, pass: string, displayName: string) => Promise<any>;
   loginWithGoogle: () => Promise<any>;
   logout: () => Promise<any>;
 }
@@ -32,6 +35,7 @@ const AuthContext = createContext<AuthContextType>({
   isPlatformAdminClaim: false,
   loading: true,
   login: async () => {},
+  signup: async () => {},
   loginWithGoogle: async () => {},
   logout: async () => {},
 });
@@ -144,10 +148,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const login = (email: string, pass: string) => signInWithEmailAndPassword(auth, email, pass);
+
+  const signup = async (email: string, pass: string, displayName: string) => {
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    await updateProfile(cred.user, { displayName });
+    return cred;
+  };
+
   const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
   const logout = () => firebaseSignOut(auth);
 
-  const value = { user, userProfile, roles, isPlatformAdminClaim, loading, login, loginWithGoogle, logout };
+  const value = { user, userProfile, roles, isPlatformAdminClaim, loading, login, signup, loginWithGoogle, logout };
 
   if (loading) return <FullScreenLoader />;
 
