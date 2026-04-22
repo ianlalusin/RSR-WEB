@@ -237,7 +237,7 @@ export default function SocMedPage() {
   useEffect(() => {
     const q = query(collection(db, 'socmedCampaigns'), orderBy('created_at', 'desc'));
     const unsub = onSnapshot(q, snap => {
-      setCampaigns(snap.docs.map(d => d.data() as Campaign));
+      setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Campaign));
       setLoadingData(false);
     }, () => setLoadingData(false));
     return unsub;
@@ -246,7 +246,7 @@ export default function SocMedPage() {
   useEffect(() => {
     const q = query(collection(db, 'socmedSubmissions'));
     const unsub = onSnapshot(q, snap => {
-      setSubmissions(snap.docs.map(d => d.data() as Submission));
+      setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Submission));
     });
     return unsub;
   }, []);
@@ -798,7 +798,7 @@ function RolloutConfig({ campaign, users, getToken, onBack }: {
       <div className="flex justify-end">
         <Button
           onClick={handleRollout}
-          disabled={subtasks.length === 0 || selectedAgents.size === 0 || busy}
+          disabled={subtasks.length === 0 || (agents.length > 0 && selectedAgents.size === 0) || busy}
           className="bg-green-600 hover:bg-green-700"
         >
           {busy ? 'Rolling out...' : `Rollout (${subtasks.length} subtasks × ${selectedAgents.size} agents)`}
