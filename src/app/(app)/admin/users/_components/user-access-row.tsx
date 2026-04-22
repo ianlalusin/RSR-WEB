@@ -23,12 +23,13 @@ import {
 } from '@/lib/types';
 import { ALL_PAGE_KEYS, canManageUser } from '@/lib/access';
 import { useAuth } from '@/components/providers/auth-provider';
-import { ChevronsUpDown, Edit } from 'lucide-react';
+import { ChevronsUpDown, Edit, UserCheck } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import UserAccessEditDialog from './user-access-edit-dialog';
+import ApproveUserDialog from './approve-user-dialog';
 
 interface Props {
   user: UserProfile;
@@ -96,10 +97,29 @@ export default function UserAccessRow({ user, actor, departments, roles, distric
               <span className="text-sm text-muted-foreground">{user.email}</span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {userDepartment && <Badge variant="secondary">{userDepartment.name}</Badge>}
             {userRole && <Badge variant="outline">{userRole.name}</Badge>}
-            <Badge variant={user.isActive ? 'default' : 'secondary'} className={cn('border-transparent', user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')}>{user.isActive ? 'Active' : 'Inactive'}</Badge>
+            <Badge variant={user.isActive ? 'default' : 'secondary'} className={cn('border-transparent', user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')}>
+              {user.isActive ? 'Active' : 'Pending'}
+            </Badge>
+            {canEdit && !user.isActive && (
+              <ApproveUserDialog
+                user={user}
+                departments={departments}
+                roles={roles}
+                onSuccess={onSuccess}
+              >
+                <Button
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700 h-7 px-2 text-xs"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <UserCheck className="mr-1 h-3 w-3" />
+                  Approve
+                </Button>
+              </ApproveUserDialog>
+            )}
             <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
           </div>
         </button>
@@ -159,7 +179,20 @@ export default function UserAccessRow({ user, actor, departments, roles, distric
             </div>
 
             {canEdit && (
-              <div className="flex justify-end pt-4 border-t">
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                {!user.isActive && (
+                  <ApproveUserDialog
+                    user={user}
+                    departments={departments}
+                    roles={roles}
+                    onSuccess={onSuccess}
+                  >
+                    <Button className="bg-green-600 hover:bg-green-700">
+                      <UserCheck className="mr-2 h-4 w-4" />
+                      Approve
+                    </Button>
+                  </ApproveUserDialog>
+                )}
                 <UserAccessEditDialog
                   user={user}
                   actor={actor}
@@ -168,7 +201,7 @@ export default function UserAccessRow({ user, actor, departments, roles, distric
                   districts={districts}
                   onSuccess={onSuccess}
                 >
-                  <Button>
+                  <Button variant="outline">
                     <Edit className="mr-2 h-4 w-4" />
                     Edit Access
                   </Button>
