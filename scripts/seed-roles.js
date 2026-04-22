@@ -17,7 +17,8 @@
 const admin = require('firebase-admin');
 const path = require('path');
 
-const keyPath = path.join(__dirname, 'serviceAccountKey.json');
+const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+  || path.join(__dirname, 'serviceAccountKey.json');
 admin.initializeApp({ credential: admin.credential.cert(require(keyPath)) });
 
 const db = admin.firestore();
@@ -94,6 +95,14 @@ const BUILT_IN_ROLES = {
       scholarship_providers: 'restricted', scholarship_applications: 'readonly',
       scholarship_scholars: 'readonly', scholarship_portal: 'restricted',
     }),
+    isBuiltIn: true,
+    status: 'active',
+  },
+  socmed: {
+    name: 'SocMed User',
+    rank: 20,
+    scopeBreadth: 'none',
+    preset: buildPreset({ socmed: 'full', profile: 'readwrite' }),
     isBuiltIn: true,
     status: 'active',
   },

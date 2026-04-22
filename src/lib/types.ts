@@ -2,7 +2,7 @@
 
 import type { Timestamp, FieldValue } from "firebase/firestore";
 
-export type UserRole = 'platformAdmin' | 'oic' | 'officeAdmin' | 'coordinator';
+export type UserRole = 'platformAdmin' | 'oic' | 'officeAdmin' | 'coordinator' | 'socmed';
 
 // NEW: PageKeys for granular page access
 export type PageKey =

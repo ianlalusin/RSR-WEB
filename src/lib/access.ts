@@ -126,12 +126,20 @@ export const coordinatorAccess = {
   districtIds: [] as string[],
 };
 
+export const socmedUserAccess = {
+  pages: buildAccess({
+    socmed: 'full',
+    profile: 'readwrite',
+  }),
+  districtIds: [] as string[],
+};
+
 // ---- Internal rank/scope helpers ----
 // These fallbacks are used when role docs haven't loaded yet (e.g. initial render).
 // Once role docs are loaded and passed to functions, doc-driven values take over.
 
 const _FALLBACK_RANK: Record<string, number> = {
-  coordinator: 1, officeAdmin: 2, oic: 3, platformAdmin: 4,
+  socmed: 0, coordinator: 1, officeAdmin: 2, oic: 3, platformAdmin: 4,
 };
 
 function _getRank(roleId: string | undefined, roles?: Role[]): number {
@@ -143,6 +151,7 @@ function _getScopeBreadth(roleId: string | undefined, roles?: Role[]) {
   if (roles?.length) return roles.find(r => r.id === roleId)?.scopeBreadth ?? 'own_districts';
   // Fallback: only OIC and platformAdmin have all_districts access
   if (roleId === 'oic' || roleId === 'platformAdmin') return 'all_districts';
+  if (roleId === 'socmed') return 'none';
   return 'own_districts';
 }
 
