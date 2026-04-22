@@ -21,7 +21,7 @@ const navItems: NavItem[] = [
   { href: '/', icon: Home, label: 'Dashboard', pageKeys: ['dashboard'] },
   { href: '/barangays', icon: Landmark, label: 'Barangays', pageKeys: ['barangays_list'] },
   { href: '/receiving', icon: Inbox, label: 'Receiving', pageKeys: ['receiving'] },
-  { href: '/medical', icon: HeartPulse, label: 'Medical', pageKeys: ['projects_medical'] },
+  { href: '/medical', icon: HeartPulse, label: 'Medical', pageKeys: ['projects_medical', 'projects_hospitals'] },
 ];
 
 export function BottomNav() {

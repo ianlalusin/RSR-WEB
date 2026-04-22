@@ -231,9 +231,12 @@ export async function updateUserSocmedRole(
   actorToken: ActorToken
 ) {
   try {
-    await resolveActor(actorToken);
-    const ref = adminDb.collection('users').doc(userId);
+    const actor = await resolveActor(actorToken);
+    if (!actor.isPlatformAdmin && actor.profile?.socmedRole !== 'Admin') {
+      return { success: false, error: 'Permission denied. Only SocMed Admins can update roles.' };
+    }
 
+    const ref = adminDb.collection('users').doc(userId);
     await ref.update({
       socmedRole: socmedRole || null,
       updatedAt: FieldValue.serverTimestamp(),
@@ -253,7 +256,10 @@ export async function createSocmedUser(
   actorToken: ActorToken
 ) {
   try {
-    await resolveActor(actorToken);
+    const actor = await resolveActor(actorToken);
+    if (!actor.isPlatformAdmin && actor.profile?.socmedRole !== 'Admin') {
+      return { success: false, error: 'Permission denied. Only SocMed Admins can create SocMed users.' };
+    }
 
     // Create Firebase Auth user via Admin SDK
     const userRecord = await adminAuth.createUser({
@@ -289,7 +295,11 @@ export async function removeSocmedUser(
   actorToken: ActorToken
 ) {
   try {
-    await resolveActor(actorToken);
+    const actor = await resolveActor(actorToken);
+    if (!actor.isPlatformAdmin && actor.profile?.socmedRole !== 'Admin') {
+      return { success: false, error: 'Permission denied. Only SocMed Admins can remove users.' };
+    }
+
     const ref = adminDb.collection('users').doc(userId);
 
     await ref.update({

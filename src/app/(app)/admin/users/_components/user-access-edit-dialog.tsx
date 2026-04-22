@@ -50,10 +50,22 @@ import {
   Role,
   PageKey,
   AccessLevel,
+  SocmedRole,
 } from '@/lib/types';
 import { ALL_PAGE_KEYS, assignableRoles } from '@/lib/access';
 import { useAuth } from '@/components/providers/auth-provider';
 import { Loader2, Wand2 } from 'lucide-react';
+
+// Scholarship keys exist in ALL_PAGE_KEYS for forward-compatibility but
+// have no live routes yet — hide them from the permissions table.
+const SCHOLARSHIP_KEYS = new Set<PageKey>([
+  'scholarship_providers',
+  'scholarship_applications',
+  'scholarship_scholars',
+  'scholarship_portal',
+]);
+
+const VISIBLE_PAGE_KEYS = ALL_PAGE_KEYS.filter(k => !SCHOLARSHIP_KEYS.has(k));
 
 const PAGE_LABELS: Record<PageKey, string> = {
   dashboard: 'Dashboard',
@@ -80,10 +92,13 @@ const PAGE_LABELS: Record<PageKey, string> = {
 
 const ACCESS_LEVELS: [AccessLevel, ...AccessLevel[]] = ['restricted', 'readonly', 'readwrite', 'full'];
 
+const SOCMED_ROLES: SocmedRole[] = ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'];
+
 const formSchema = z.object({
   isActive: z.boolean(),
   departmentId: z.string().optional(),
   roleId: z.string().optional(),
+  socmedRole: z.string().optional(),
   access: z.object({
     districtIds: z.array(z.string()).default([]),
     pages: z.record(z.enum(ACCESS_LEVELS)),
@@ -123,6 +138,7 @@ export default function UserAccessEditDialog({
       isActive: user.isActive,
       departmentId: user.departmentId || '',
       roleId: user.roleId || '',
+      socmedRole: user.socmedRole || 'none',
       access: {
         districtIds: user.access?.districtIds || [],
         pages: (ALL_PAGE_KEYS.reduce((acc, key) => {
@@ -138,12 +154,22 @@ export default function UserAccessEditDialog({
     const roleDoc = roles.find(r => r.id === roleId);
     if (!roleDoc?.preset) return;
 
+    // Apply page access levels
     const pagesFlat: Record<string, AccessLevel> = {};
     ALL_PAGE_KEYS.forEach(key => {
       pagesFlat[key] = (roleDoc.preset![key] as AccessLevel) ?? 'restricted';
     });
     form.setValue('access.pages', pagesFlat, { shouldDirty: true });
-    toast({ title: 'Preset Applied', description: `Page permissions set to ${roleDoc.name} defaults.` });
+
+    // Apply district scope based on role's scopeBreadth
+    if (roleDoc.scopeBreadth === 'all_districts') {
+      form.setValue('access.districtIds', districts.map(d => d.id), { shouldDirty: true });
+    } else if (roleDoc.scopeBreadth === 'none') {
+      form.setValue('access.districtIds', [], { shouldDirty: true });
+    }
+    // 'own_districts' → leave as-is; user-specific selection
+
+    toast({ title: 'Preset Applied', description: `Permissions set to ${roleDoc.name} defaults.` });
   };
 
   const onSubmit = async (values: FormValues) => {
@@ -151,30 +177,32 @@ export default function UserAccessEditDialog({
       isActive: user.isActive,
       departmentId: user.departmentId,
       roleId: user.roleId,
-      access: user.access
+      socmedRole: user.socmedRole,
+      access: user.access,
     };
 
     const pagesPayload = Object.entries(values.access.pages).reduce((acc, [key, level]) => {
-        acc[key as PageKey] = { level };
-        return acc;
-    }, {} as Record<PageKey, {level: AccessLevel}>);
+      acc[key as PageKey] = { level };
+      return acc;
+    }, {} as Record<PageKey, { level: AccessLevel }>);
 
     const payload: Partial<UserProfile> = {
-        isActive: values.isActive,
-        departmentId: values.departmentId,
-        roleId: values.roleId,
-        access: {
-            districtIds: values.access.districtIds,
-            pages: pagesPayload,
-        }
-    }
+      isActive: values.isActive,
+      departmentId: values.departmentId,
+      roleId: values.roleId,
+      socmedRole: (values.socmedRole === 'none' ? null : values.socmedRole) as SocmedRole | undefined,
+      access: {
+        districtIds: values.access.districtIds,
+        pages: pagesPayload,
+      },
+    };
 
     try {
       const actorToken = await authUser!.getIdToken();
       const result = await updateUserAccess(user.uid, payload, actorToken, originalData);
       if (result.success) {
         toast({
-          title: `User updated`,
+          title: 'User updated',
           description: `${user.displayName}'s profile has been successfully updated.`,
         });
         setIsOpen(false);
@@ -205,17 +233,18 @@ export default function UserAccessEditDialog({
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <ScrollArea className="h-[65vh] pr-4">
               <div className="space-y-6 py-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Row 1: Status + Department + Role + SocMed Role */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <FormField
                     control={form.control}
                     name="isActive"
                     render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm col-span-1">
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
                         <div className="space-y-0.5">
-                          <FormLabel>Active Status</FormLabel>
+                          <FormLabel>Active</FormLabel>
                           {user.uid === actor.uid && (
                             <FormDescription className="text-xs">
-                              You cannot make yourself inactive.
+                              Cannot deactivate yourself.
                             </FormDescription>
                           )}
                         </div>
@@ -233,11 +262,11 @@ export default function UserAccessEditDialog({
                     control={form.control}
                     name="departmentId"
                     render={({ field }) => (
-                      <FormItem className="col-span-1">
+                      <FormItem>
                         <FormLabel>Department</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
-                            <SelectTrigger><SelectValue placeholder="Select a department" /></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                           </FormControl>
                           <SelectContent>
                             {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
@@ -250,17 +279,35 @@ export default function UserAccessEditDialog({
                     control={form.control}
                     name="roleId"
                     render={({ field }) => (
-                      <FormItem className="col-span-1">
+                      <FormItem>
                         <FormLabel>Role</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
-                            <SelectTrigger><SelectValue placeholder="Select a role" /></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                           </FormControl>
                           <SelectContent>
                             {allowedRoles.map(role => (
-                              <SelectItem key={role.id} value={role.id}>
-                                {role.name}
-                              </SelectItem>
+                              <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="socmedRole"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>SocMed Role</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger><SelectValue placeholder="No SocMed role" /></SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">— None —</SelectItem>
+                            {SOCMED_ROLES.map(r => (
+                              <SelectItem key={r} value={r}>{r}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -269,6 +316,7 @@ export default function UserAccessEditDialog({
                   />
                 </div>
 
+                {/* Apply Preset button */}
                 {(() => {
                   const selectedRole = roles.find(r => r.id === form.watch('roleId'));
                   return selectedRole?.preset ? (
@@ -279,6 +327,7 @@ export default function UserAccessEditDialog({
                   ) : null;
                 })()}
 
+                {/* District Scope */}
                 <FormField
                   control={form.control}
                   name="access.districtIds"
@@ -292,17 +341,14 @@ export default function UserAccessEditDialog({
                             control={form.control}
                             name="access.districtIds"
                             render={({ field }) => (
-                              <FormItem
-                                key={d.id}
-                                className="flex flex-row items-start space-x-3 space-y-0"
-                              >
+                              <FormItem key={d.id} className="flex flex-row items-start space-x-3 space-y-0">
                                 <FormControl>
                                   <Checkbox
                                     checked={field.value?.includes(d.id)}
                                     onCheckedChange={(checked) => (
                                       checked
                                         ? field.onChange([...(field.value || []), d.id])
-                                        : field.onChange((field.value || []).filter((value) => value !== d.id))
+                                        : field.onChange((field.value || []).filter((v) => v !== d.id))
                                     )}
                                   />
                                 </FormControl>
@@ -317,6 +363,7 @@ export default function UserAccessEditDialog({
                   )}
                 />
 
+                {/* Page Permissions — scholarship keys hidden (no live routes yet) */}
                 <div>
                   <FormLabel className="text-base font-semibold">Page Permissions</FormLabel>
                   <Table className="mt-2">
@@ -327,7 +374,7 @@ export default function UserAccessEditDialog({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {ALL_PAGE_KEYS.map((key) => (
+                      {VISIBLE_PAGE_KEYS.map((key) => (
                         <TableRow key={key}>
                           <TableCell>{PAGE_LABELS[key]}</TableCell>
                           <TableCell>
@@ -362,9 +409,7 @@ export default function UserAccessEditDialog({
             <DialogFooter className="pt-6 border-t mt-4">
               <Button type="button" variant="ghost" onClick={() => setIsOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
+                {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Save Changes
               </Button>
             </DialogFooter>

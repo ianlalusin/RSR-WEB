@@ -20,7 +20,7 @@ const navItems: NavItem[] = [
   { href: '/barangays', icon: Landmark, label: 'Barangays', pageKeys: ['barangays_list'] },
   { href: '/organization', icon: Briefcase, label: 'Organization', pageKeys: ['organization_orgMembers', 'organization_departments', 'organization_roles'] },
   { href: '/receiving', icon: Inbox, label: 'Receiving', pageKeys: ['receiving'] },
-  { href: '/medical', icon: HeartPulse, label: 'Medical', pageKeys: ['projects_medical'] },
+  { href: '/medical', icon: HeartPulse, label: 'Medical', pageKeys: ['projects_medical', 'projects_hospitals'] },
   { href: '/educational', icon: GraduationCap, label: 'Educational', pageKeys: ['projects_educational'] },
   { href: '/infrastructure', icon: Building, label: 'Infrastructure', pageKeys: ['projects_infrastructure'] },
   { href: '/tasker', icon: ClipboardList, label: 'Tasker', pageKeys: ['tasker'] },
