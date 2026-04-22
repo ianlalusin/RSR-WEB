@@ -91,28 +91,33 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const userRef = doc(db, 'users', firebaseUser.uid);
       const docSnap = await getDoc(userRef);
 
-      // If a user is authenticated but has no profile in the DB, create one.
-      // This ensures the auth user is always matched with a DB record.
       if (!docSnap.exists()) {
-        const isFirstAdmin = isAdmin;
-        
-        const newUserProfile: UserProfile = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName,
-          photoURL: firebaseUser.photoURL,
-          // Admins are active by default, others must be enabled by an admin.
-          isActive: isFirstAdmin, 
-          // Admins get full access, others start with restricted access.
-          access: isFirstAdmin ? platformAdminAccess : defaultAccess,
-          departmentId: isFirstAdmin ? 'admin' : undefined,
-          roleId: isFirstAdmin ? 'platformAdmin' : undefined,
+        // Reload so displayName is populated after updateProfile (email/pw signup race)
+        await firebaseUser.reload();
+        const freshUser = auth.currentUser!;
+
+        // Build profile without undefined fields — Firestore SDK v9 throws on undefined values.
+        const newUserProfile: Record<string, unknown> = {
+          uid: freshUser.uid,
+          email: freshUser.email,
+          displayName: freshUser.displayName,
+          photoURL: freshUser.photoURL ?? null,
+          isActive: isAdmin,
+          access: isAdmin ? platformAdminAccess : defaultAccess,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
-        
-        // This write is allowed by the updated security rule.
-        await setDoc(userRef, newUserProfile);
+
+        if (isAdmin) {
+          newUserProfile.departmentId = 'admin';
+          newUserProfile.roleId = 'platformAdmin';
+        }
+
+        try {
+          await setDoc(userRef, newUserProfile);
+        } catch (err) {
+          console.error('[AuthProvider] Failed to create user profile:', err);
+        }
       }
 
       unsubProfile = onSnapshot(userRef, (snapshot) => {
