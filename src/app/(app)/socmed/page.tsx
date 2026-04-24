@@ -5,7 +5,7 @@ import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage, isPlatformAdmin } from '@/lib/access';
 import { db } from '@/lib/firebase';
 import { collection, query, getDocs, onSnapshot, orderBy } from 'firebase/firestore';
-import type { UserProfile, SocmedRole } from '@/lib/types';
+import type { UserProfile, SocmedRole, SocmedGroup } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,6 +26,9 @@ import {
   updateUserSocmedRole,
   createSocmedUser,
   removeSocmedUser,
+  createSocmedGroup,
+  updateSocmedGroup,
+  deleteSocmedGroup,
   type SubtaskDef,
 } from '@/app/socmed-actions';
 
@@ -67,7 +70,7 @@ interface Submission {
   checked_at: any;
 }
 
-type TabKey = 'dashboard' | 'campaigns' | 'validate' | 'rollout' | 'mytasks' | 'checkqueue' | 'team' | 'users';
+type TabKey = 'dashboard' | 'campaigns' | 'validate' | 'rollout' | 'mytasks' | 'checkqueue' | 'groups' | 'team' | 'users';
 
 // ============================================================
 // CONSTANTS
@@ -204,6 +207,7 @@ function getVisibleTabs(role: SocmedRole | null): { key: TabKey; label: string }
     { key: 'rollout',    label: 'Rollout',      roles: ['Admin', 'Manager'] },
     { key: 'mytasks',    label: 'My Tasks',     roles: ['Agent'] },
     { key: 'checkqueue', label: 'Check Queue',  roles: ['Checker'] },
+    { key: 'groups',     label: 'Groups',       roles: ['Admin', 'Manager'] },
     { key: 'team',       label: 'Team',         roles: ['Admin', 'Manager'] },
     { key: 'users',      label: 'Users',        roles: ['Admin'] },
   ];
@@ -222,6 +226,7 @@ export default function SocMedPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [groups, setGroups] = useState<SocmedGroup[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   const socmedRole = getSocmedRole(userProfile, isPlatformAdminClaim);
@@ -247,6 +252,14 @@ export default function SocMedPage() {
     const q = query(collection(db, 'socmedSubmissions'));
     const unsub = onSnapshot(q, snap => {
       setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Submission));
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'socmedGroups'), orderBy('name'));
+    const unsub = onSnapshot(q, snap => {
+      setGroups(snap.docs.map(d => ({ id: d.id, ...d.data() }) as SocmedGroup));
     });
     return unsub;
   }, []);
@@ -323,13 +336,16 @@ export default function SocMedPage() {
             <ValidateTab campaigns={campaigns} users={allUsers} socmedRole={socmedRole} getToken={getToken} />
           )}
           {activeTab === 'rollout' && (
-            <RolloutTab campaigns={campaigns} users={allUsers} getToken={getToken} />
+            <RolloutTab campaigns={campaigns} users={allUsers} groups={groups} getToken={getToken} />
           )}
           {activeTab === 'mytasks' && user && (
             <MyTasksTab campaigns={campaigns} submissions={submissions} currentUid={user.uid} getToken={getToken} />
           )}
           {activeTab === 'checkqueue' && user && (
             <CheckQueueTab submissions={submissions} campaigns={campaigns} users={allUsers} currentUid={user.uid} getToken={getToken} />
+          )}
+          {activeTab === 'groups' && (
+            <GroupsTab groups={groups} users={allUsers} getToken={getToken} />
           )}
           {activeTab === 'team' && (
             <TeamTab submissions={submissions} users={allUsers} />
@@ -643,8 +659,8 @@ function ValidateCard({ campaign: c, users, role, getToken }: {
 // TAB: ROLLOUT
 // ============================================================
 
-function RolloutTab({ campaigns, users, getToken }: {
-  campaigns: Campaign[]; users: UserProfile[]; getToken: () => Promise<string>;
+function RolloutTab({ campaigns, users, groups, getToken }: {
+  campaigns: Campaign[]; users: UserProfile[]; groups: SocmedGroup[]; getToken: () => Promise<string>;
 }) {
   const validatedCampaigns = campaigns.filter(c => c.status === 'validated');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -652,7 +668,7 @@ function RolloutTab({ campaigns, users, getToken }: {
   if (selectedId) {
     const campaign = campaigns.find(c => c.id === selectedId);
     if (!campaign) { setSelectedId(null); return null; }
-    return <RolloutConfig campaign={campaign} users={users} getToken={getToken} onBack={() => setSelectedId(null)} />;
+    return <RolloutConfig campaign={campaign} users={users} groups={groups} getToken={getToken} onBack={() => setSelectedId(null)} />;
   }
 
   return (
@@ -680,8 +696,8 @@ function RolloutTab({ campaigns, users, getToken }: {
   );
 }
 
-function RolloutConfig({ campaign, users, getToken, onBack }: {
-  campaign: Campaign; users: UserProfile[]; getToken: () => Promise<string>; onBack: () => void;
+function RolloutConfig({ campaign, users, groups, getToken, onBack }: {
+  campaign: Campaign; users: UserProfile[]; groups: SocmedGroup[]; getToken: () => Promise<string>; onBack: () => void;
 }) {
   const [subtasks, setSubtasks] = useState<SubtaskDef[]>([]);
   const [stType, setStType] = useState(SUBTASK_TYPES[0]);
@@ -692,6 +708,14 @@ function RolloutConfig({ campaign, users, getToken, onBack }: {
   const [error, setError] = useState('');
 
   const agents = users.filter(u => u.socmedRole === 'Agent' && u.isActive);
+
+  const applyGroup = (groupId: string) => {
+    if (!groupId) return;
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+    const activeUids = new Set(agents.map(a => a.uid));
+    setSelectedAgents(new Set(group.agentIds.filter(uid => activeUids.has(uid))));
+  };
 
   const addSubtask = () => {
     if (!stInstruction.trim()) return;
@@ -768,6 +792,34 @@ function RolloutConfig({ campaign, users, getToken, onBack }: {
         <Card>
           <CardContent className="pt-4 space-y-3">
             <SectionLabel>Agents</SectionLabel>
+
+            {/* Group + select-all toolbar */}
+            <div className="flex flex-wrap items-center gap-2">
+              {groups.length > 0 && (
+                <AppSelect
+                  value=""
+                  onChange={applyGroup}
+                  options={[
+                    { value: '', label: 'Assign group…' },
+                    ...groups.map(g => ({ value: g.id, label: `${g.name} (${g.agentIds.length})` })),
+                  ]}
+                  className="flex-1 min-w-36 text-xs"
+                />
+              )}
+              <Button size="sm" variant="outline" className="text-xs h-8"
+                onClick={() => setSelectedAgents(new Set(agents.map(a => a.uid)))}
+                disabled={agents.length === 0}
+              >
+                Select all
+              </Button>
+              <Button size="sm" variant="ghost" className="text-xs h-8"
+                onClick={() => setSelectedAgents(new Set())}
+                disabled={selectedAgents.size === 0}
+              >
+                Clear
+              </Button>
+            </div>
+
             {agents.length === 0 ? (
               <p className="text-xs text-muted-foreground">No agents found. Assign Agent role in Users tab.</p>
             ) : (
@@ -1122,6 +1174,167 @@ function TeamTab({ submissions, users }: { submissions: Submission[]; users: Use
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// TAB: GROUPS (Admin + Manager)
+// ============================================================
+
+function GroupsTab({ groups, users, getToken }: {
+  groups: SocmedGroup[]; users: UserProfile[]; getToken: () => Promise<string>;
+}) {
+  const agents = users.filter(u => u.socmedRole === 'Agent' && u.isActive);
+
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setName(''); setDescription(''); setSelectedAgents(new Set()); setErrors({});
+    setShowForm(true);
+  };
+
+  const openEdit = (g: SocmedGroup) => {
+    setEditingId(g.id);
+    setName(g.name); setDescription(g.description || '');
+    setSelectedAgents(new Set(g.agentIds)); setErrors({});
+    setShowForm(true);
+  };
+
+  const cancelForm = () => { setShowForm(false); setEditingId(null); };
+
+  const toggleAgent = (uid: string) => {
+    const next = new Set(selectedAgents);
+    if (next.has(uid)) next.delete(uid); else next.add(uid);
+    setSelectedAgents(next);
+  };
+
+  const handleSave = async () => {
+    const errs: Record<string, string> = {};
+    if (!name.trim()) errs.name = 'Name is required';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    setBusy(true); setErrors({});
+    const token = await getToken();
+    const agentIds = Array.from(selectedAgents);
+
+    const result = editingId
+      ? await updateSocmedGroup(editingId, { name, description, agentIds }, token)
+      : await createSocmedGroup(name, description, agentIds, token);
+
+    setBusy(false);
+    if (result.success) {
+      cancelForm();
+    } else {
+      setErrors({ form: result.error || 'Failed to save group' });
+    }
+  };
+
+  const handleDelete = async (g: SocmedGroup) => {
+    if (!window.confirm(`Delete group "${g.name}"? This cannot be undone.`)) return;
+    const token = await getToken();
+    await deleteSocmedGroup(g.id, token);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <SectionLabel>Agent Groups</SectionLabel>
+        {!showForm && (
+          <Button size="sm" onClick={openCreate}>+ New Group</Button>
+        )}
+      </div>
+
+      {showForm && (
+        <Card>
+          <CardContent className="pt-4 space-y-3">
+            <p className="font-medium text-sm">{editingId ? 'Edit Group' : 'New Group'}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Input value={name} onChange={e => setName(e.target.value)} placeholder="Group name" />
+                <FieldError msg={errors.name} />
+              </div>
+              <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Description (optional)" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">Members</p>
+              {agents.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No active agents available.</p>
+              ) : (
+                <ScrollArea className="h-40 rounded-md border p-2">
+                  <div className="space-y-2">
+                    {agents.map(a => (
+                      <label key={a.uid} className="flex items-center gap-2 cursor-pointer text-sm">
+                        <Checkbox
+                          checked={selectedAgents.has(a.uid)}
+                          onCheckedChange={() => toggleAgent(a.uid)}
+                        />
+                        <UserAvatar name={a.displayName} size="sm" />
+                        <span>{a.displayName || a.email}</span>
+                      </label>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
+            <FieldError msg={errors.form} />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={cancelForm} disabled={busy}>Cancel</Button>
+              <Button size="sm" onClick={handleSave} disabled={busy}>
+                {busy ? 'Saving...' : editingId ? 'Update Group' : 'Create Group'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {groups.length === 0 && !showForm ? (
+        <EmptyState icon="👥" text="No groups yet. Create one to speed up rollouts." />
+      ) : (
+        <div className="space-y-2">
+          {groups.map(g => {
+            const members = agents.filter(a => g.agentIds.includes(a.uid));
+            const shown = members.slice(0, 5);
+            const extra = members.length - shown.length;
+            return (
+              <Card key={g.id}>
+                <CardContent className="pt-3 pb-3 flex items-start justify-between flex-wrap gap-3">
+                  <div className="space-y-1 flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-sm">{g.name}</p>
+                      <Badge variant="secondary" className="text-xs">{members.length} agent{members.length !== 1 ? 's' : ''}</Badge>
+                    </div>
+                    {g.description && <p className="text-xs text-muted-foreground">{g.description}</p>}
+                    {members.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {shown.map(a => (
+                          <span key={a.uid} className="inline-flex items-center gap-1 bg-muted rounded-full px-2 py-0.5 text-xs">
+                            <UserAvatar name={a.displayName} size="sm" />
+                            {a.displayName || a.email}
+                          </span>
+                        ))}
+                        {extra > 0 && <span className="text-xs text-muted-foreground">+{extra} more</span>}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button size="sm" variant="outline" onClick={() => openEdit(g)}>Edit</Button>
+                    <Button size="sm" variant="outline" className="text-destructive border-destructive/50 hover:bg-destructive/10"
+                      onClick={() => handleDelete(g)}>Delete</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

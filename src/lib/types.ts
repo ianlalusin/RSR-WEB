@@ -37,6 +37,16 @@ export interface PageAccess {
 
 export type SocmedRole = 'Admin' | 'Manager' | 'Validator' | 'Checker' | 'Agent';
 
+export interface SocmedGroup {
+  id: string;
+  name: string;
+  description?: string;
+  agentIds: string[];
+  createdAt?: any;
+  updatedAt?: any;
+  createdBy?: string;
+}
+
 // UPDATED: UserProfile with new access control model
 export interface UserProfile {
   uid: string;

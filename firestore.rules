@@ -134,6 +134,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // -------- SocMed Groups --------
+    match /socmedGroups/{groupId} {
+      allow read: if isActiveUser();
+      allow write: if false;
+    }
+
     // -------- Audit logs (write via Admin SDK; OIC+ can read for auditing) --------
     match /auditLogs/{logId} {
       allow read: if isAdminOrOIC();

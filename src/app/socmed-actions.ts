@@ -312,3 +312,77 @@ export async function removeSocmedUser(
     return { success: false, error: error.message };
   }
 }
+
+// ---- Group Management Actions ----
+
+function canManageGroups(actor: VerifiedActor): boolean {
+  const role = actor.profile?.socmedRole;
+  return actor.isPlatformAdmin || role === 'Admin' || role === 'Manager';
+}
+
+export async function createSocmedGroup(
+  name: string,
+  description: string,
+  agentIds: string[],
+  actorToken: ActorToken
+) {
+  try {
+    const actor = await resolveActor(actorToken);
+    if (!canManageGroups(actor)) {
+      return { success: false, error: 'Permission denied. Only SocMed Admins or Managers can manage groups.' };
+    }
+
+    const ref = adminDb.collection('socmedGroups').doc();
+    await ref.set({
+      name: name.trim(),
+      description: description.trim(),
+      agentIds,
+      createdBy: actor.uid,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { success: true, id: ref.id };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function updateSocmedGroup(
+  groupId: string,
+  updates: { name?: string; description?: string; agentIds?: string[] },
+  actorToken: ActorToken
+) {
+  try {
+    const actor = await resolveActor(actorToken);
+    if (!canManageGroups(actor)) {
+      return { success: false, error: 'Permission denied. Only SocMed Admins or Managers can manage groups.' };
+    }
+
+    const payload: Record<string, any> = { updatedAt: FieldValue.serverTimestamp() };
+    if (updates.name !== undefined) payload.name = updates.name.trim();
+    if (updates.description !== undefined) payload.description = updates.description.trim();
+    if (updates.agentIds !== undefined) payload.agentIds = updates.agentIds;
+
+    await adminDb.collection('socmedGroups').doc(groupId).update(payload);
+
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function deleteSocmedGroup(groupId: string, actorToken: ActorToken) {
+  try {
+    const actor = await resolveActor(actorToken);
+    if (!canManageGroups(actor)) {
+      return { success: false, error: 'Permission denied. Only SocMed Admins or Managers can manage groups.' };
+    }
+
+    await adminDb.collection('socmedGroups').doc(groupId).delete();
+
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
