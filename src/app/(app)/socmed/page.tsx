@@ -70,7 +70,7 @@ interface Submission {
   checked_at: any;
 }
 
-type TabKey = 'dashboard' | 'campaigns' | 'validate' | 'rollout' | 'mytasks' | 'checkqueue' | 'groups' | 'team' | 'users';
+type TabKey = 'dashboard' | 'campaigns' | 'validate' | 'rollout' | 'groups' | 'team' | 'users';
 
 // ============================================================
 // CONSTANTS
@@ -201,15 +201,13 @@ function getSocmedRole(profile: UserProfile | null, isPlatformAdminClaim: boolea
 function getVisibleTabs(role: SocmedRole | null): { key: TabKey; label: string }[] {
   if (!role) return [];
   const tabs: { key: TabKey; label: string; roles: SocmedRole[] }[] = [
-    { key: 'dashboard',  label: 'Dashboard',    roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
-    { key: 'campaigns',  label: 'Campaigns',    roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
-    { key: 'validate',   label: 'Validate',     roles: ['Admin', 'Manager', 'Validator'] },
-    { key: 'rollout',    label: 'Rollout',      roles: ['Admin', 'Manager'] },
-    { key: 'mytasks',    label: 'My Tasks',     roles: ['Agent'] },
-    { key: 'checkqueue', label: 'Check Queue',  roles: ['Checker'] },
-    { key: 'groups',     label: 'Groups',       roles: ['Admin', 'Manager'] },
-    { key: 'team',       label: 'Team',         roles: ['Admin', 'Manager'] },
-    { key: 'users',      label: 'Users',        roles: ['Admin'] },
+    { key: 'dashboard', label: 'Dashboard', roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
+    { key: 'campaigns', label: 'Campaigns', roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
+    { key: 'validate',  label: 'Validate',  roles: ['Admin', 'Manager', 'Validator'] },
+    { key: 'rollout',   label: 'Rollout',   roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
+    { key: 'groups',    label: 'Groups',    roles: ['Admin', 'Manager'] },
+    { key: 'team',      label: 'Team',      roles: ['Admin', 'Manager'] },
+    { key: 'users',     label: 'Users',     roles: ['Admin'] },
   ];
   return tabs.filter(t => t.roles.includes(role));
 }
@@ -327,7 +325,13 @@ export default function SocMedPage() {
       ) : (
         <>
           {activeTab === 'dashboard' && (
-            <DashboardTab campaigns={campaigns} submissions={submissions} users={allUsers} />
+            <DashboardTab
+              campaigns={campaigns}
+              submissions={submissions}
+              users={allUsers}
+              socmedRole={socmedRole}
+              currentUid={user?.uid || ''}
+            />
           )}
           {activeTab === 'campaigns' && (
             <CampaignsTab campaigns={campaigns} submissions={submissions} users={allUsers} getToken={getToken} />
@@ -335,14 +339,16 @@ export default function SocMedPage() {
           {activeTab === 'validate' && (
             <ValidateTab campaigns={campaigns} users={allUsers} socmedRole={socmedRole} getToken={getToken} />
           )}
-          {activeTab === 'rollout' && (
-            <RolloutTab campaigns={campaigns} users={allUsers} groups={groups} getToken={getToken} />
-          )}
-          {activeTab === 'mytasks' && user && (
-            <MyTasksTab campaigns={campaigns} submissions={submissions} currentUid={user.uid} getToken={getToken} />
-          )}
-          {activeTab === 'checkqueue' && user && (
-            <CheckQueueTab submissions={submissions} campaigns={campaigns} users={allUsers} currentUid={user.uid} getToken={getToken} />
+          {activeTab === 'rollout' && user && (
+            <RolloutTab
+              campaigns={campaigns}
+              submissions={submissions}
+              users={allUsers}
+              groups={groups}
+              socmedRole={socmedRole}
+              currentUid={user.uid}
+              getToken={getToken}
+            />
           )}
           {activeTab === 'groups' && (
             <GroupsTab groups={groups} users={allUsers} getToken={getToken} />
@@ -363,20 +369,36 @@ export default function SocMedPage() {
 // TAB: DASHBOARD
 // ============================================================
 
-function DashboardTab({ campaigns, submissions, users }: {
+function DashboardTab({ campaigns, submissions, users, socmedRole, currentUid }: {
   campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[];
+  socmedRole: SocmedRole; currentUid: string;
 }) {
-  const activeCampaigns = campaigns.filter(c => c.status === 'active');
-  const pendingValidation = campaigns.filter(c => c.status === 'pending' || c.status === 'manager_approved');
-  const toCheck = submissions.filter(s => s.status === 'submitted');
-  const approved = submissions.filter(s => s.status === 'approved');
+  const isAgent = socmedRole === 'Agent';
 
-  const stats = [
-    { label: 'Active Campaigns',       value: activeCampaigns.length,    color: 'text-green-600 dark:text-green-400' },
-    { label: 'Pending Validation',      value: pendingValidation.length,  color: 'text-yellow-600 dark:text-yellow-400' },
-    { label: 'Submissions to Check',    value: toCheck.length,            color: 'text-blue-600 dark:text-blue-400' },
-    { label: 'Tasks Approved',          value: approved.length,           color: 'text-primary' },
-  ];
+  const mySubs = isAgent ? submissions.filter(s => s.agent_id === currentUid) : submissions;
+  const myCampaignIds = new Set(mySubs.map(s => s.campaign_id));
+  const visibleCampaigns = isAgent
+    ? campaigns.filter(c => myCampaignIds.has(c.id))
+    : campaigns;
+
+  const activeCampaigns = visibleCampaigns.filter(c => c.status === 'active');
+  const pendingValidation = visibleCampaigns.filter(c => c.status === 'pending' || c.status === 'manager_approved');
+  const toCheck = mySubs.filter(s => s.status === 'submitted');
+  const approved = mySubs.filter(s => s.status === 'approved');
+
+  const stats = isAgent
+    ? [
+      { label: 'My Active Campaigns', value: activeCampaigns.length,             color: 'text-green-600 dark:text-green-400' },
+      { label: 'My Pending Tasks',     value: mySubs.filter(s => s.status === 'pending').length, color: 'text-yellow-600 dark:text-yellow-400' },
+      { label: 'Awaiting Review',      value: toCheck.length,                    color: 'text-blue-600 dark:text-blue-400' },
+      { label: 'My Tasks Approved',    value: approved.length,                   color: 'text-primary' },
+    ]
+    : [
+      { label: 'Active Campaigns',     value: activeCampaigns.length,            color: 'text-green-600 dark:text-green-400' },
+      { label: 'Pending Validation',   value: pendingValidation.length,          color: 'text-yellow-600 dark:text-yellow-400' },
+      { label: 'Submissions to Check', value: toCheck.length,                    color: 'text-blue-600 dark:text-blue-400' },
+      { label: 'Tasks Approved',       value: approved.length,                   color: 'text-primary' },
+    ];
 
   return (
     <div className="space-y-6">
@@ -392,16 +414,18 @@ function DashboardTab({ campaigns, submissions, users }: {
       </div>
 
       <div>
-        <SectionLabel>Active Campaigns</SectionLabel>
+        <SectionLabel>{isAgent ? 'My Active Campaigns' : 'Active Campaigns'}</SectionLabel>
         {activeCampaigns.length === 0 ? (
-          <EmptyState icon="📢" text="No active campaigns yet" />
+          <EmptyState icon="📢" text={isAgent ? 'No campaigns assigned to you yet' : 'No active campaigns yet'} />
         ) : (
           <div className="space-y-3">
             {activeCampaigns.map(c => {
               const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
               const agents: string[] = parseJson(c.target_agents) || [];
-              const totalExpected = subtasks.length * agents.length;
-              const approvedCount = submissions.filter(s => s.campaign_id === c.id && s.status === 'approved').length;
+              const totalExpected = isAgent ? subtasks.length : subtasks.length * agents.length;
+              const approvedCount = isAgent
+                ? mySubs.filter(s => s.campaign_id === c.id && s.status === 'approved').length
+                : submissions.filter(s => s.campaign_id === c.id && s.status === 'approved').length;
               return (
                 <Card key={c.id}>
                   <CardContent className="pt-4 space-y-3">
@@ -659,7 +683,23 @@ function ValidateCard({ campaign: c, users, role, getToken }: {
 // TAB: ROLLOUT
 // ============================================================
 
-function RolloutTab({ campaigns, users, groups, getToken }: {
+function RolloutTab({ campaigns, submissions, users, groups, socmedRole, currentUid, getToken }: {
+  campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[]; groups: SocmedGroup[];
+  socmedRole: SocmedRole; currentUid: string; getToken: () => Promise<string>;
+}) {
+  if (socmedRole === 'Agent') {
+    return <MyTasksTab campaigns={campaigns} submissions={submissions} currentUid={currentUid} getToken={getToken} />;
+  }
+  if (socmedRole === 'Checker') {
+    return <CheckQueueTab submissions={submissions} campaigns={campaigns} users={users} currentUid={currentUid} getToken={getToken} />;
+  }
+  if (socmedRole === 'Validator') {
+    return <ValidatorRolloutView campaigns={campaigns} submissions={submissions} />;
+  }
+  return <ManagerRolloutView campaigns={campaigns} users={users} groups={groups} getToken={getToken} />;
+}
+
+function ManagerRolloutView({ campaigns, users, groups, getToken }: {
   campaigns: Campaign[]; users: UserProfile[]; groups: SocmedGroup[]; getToken: () => Promise<string>;
 }) {
   const validatedCampaigns = campaigns.filter(c => c.status === 'validated');
@@ -690,6 +730,60 @@ function RolloutTab({ campaigns, users, groups, getToken }: {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ValidatorRolloutView({ campaigns, submissions }: {
+  campaigns: Campaign[]; submissions: Submission[];
+}) {
+  const activeCampaigns = campaigns.filter(c => c.status === 'active' || c.status === 'completed');
+
+  return (
+    <div className="space-y-3">
+      <SectionLabel>Active Rollouts</SectionLabel>
+      {activeCampaigns.length === 0 ? (
+        <EmptyState icon="🚀" text="No active rollouts yet" />
+      ) : (
+        <div className="space-y-3">
+          {activeCampaigns.map(c => {
+            const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
+            const agents: string[] = parseJson(c.target_agents) || [];
+            const totalExpected = subtasks.length * agents.length;
+            const approvedCount = submissions.filter(s => s.campaign_id === c.id && s.status === 'approved').length;
+            return (
+              <Card key={c.id}>
+                <CardContent className="pt-4 space-y-3">
+                  <div className="flex justify-between items-start flex-wrap gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">{c.title}</span>
+                        <StatusBadge status={c.status} map={STATUS_CLASS} />
+                      </div>
+                      <a href={c.url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:underline dark:text-blue-400 break-all">{c.url}</a>
+                    </div>
+                    {c.deadline && <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400">Due: {c.deadline}</Badge>}
+                  </div>
+                  {subtasks.length > 0 && (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {subtasks.map((st, i) => (
+                        <Badge key={i} variant="secondary">{SUBTASK_ICONS[st.type] || ''} {st.type}</Badge>
+                      ))}
+                    </div>
+                  )}
+                  {totalExpected > 0 && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Progress: {approvedCount}/{totalExpected} ({agents.length} agents)</p>
+                      <MiniBar value={approvedCount} max={totalExpected} />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
