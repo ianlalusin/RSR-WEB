@@ -23,8 +23,10 @@ import {
   rolloutCampaign,
   editRollout,
   deleteCampaign,
-  submitProof,
-  checkSubmission,
+  markSubtaskDone,
+  unmarkSubtaskDone,
+  submitCampaignProof,
+  checkSubtask,
   updateUserSocmedRole,
   createSocmedUser,
   removeSocmedUser,
@@ -56,21 +58,29 @@ interface Campaign {
   deadline: string | null;
   target_agents: string | null;
   subtasks: string | null;
+  require_screenshot?: boolean;
+  allow_multiple_urls?: boolean;
+}
+
+interface SubtaskItem {
+  type: string;
+  instruction: string;
+  status: 'pending' | 'done' | 'passed' | 'failed';
+  failure_reason: string | null;
+  checked_by: string | null;
+  checked_at: any;
 }
 
 interface Submission {
   id: string;
   campaign_id: string;
   agent_id: string;
-  subtask_type: string;
-  subtask_instruction?: string;
-  status: string;
-  proof_url: string | null;
+  subtasks: SubtaskItem[];
+  proof_urls: string[] | null;
+  proof_screenshot_url: string | null;
   proof_note: string | null;
   submitted_at: any;
-  checked_by: string | null;
-  checker_note: string | null;
-  checked_at: any;
+  overall_status: 'pending' | 'in_progress' | 'submitted' | 'passed' | 'failed';
 }
 
 type TabKey = 'dashboard' | 'campaigns' | 'validate' | 'rollout' | 'groups' | 'team' | 'users';
@@ -98,11 +108,12 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 const SUB_STATUS_CLASS: Record<string, string> = {
-  pending:   'bg-secondary text-secondary-foreground',
-  submitted: 'bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400',
-  approved:  'bg-green-500/20 text-green-700 border-green-500/40 dark:text-green-400',
-  rejected:  'bg-destructive/20 text-destructive border-destructive/40',
-  flagged:   'bg-orange-500/20 text-orange-700 border-orange-500/40 dark:text-orange-400',
+  pending:     'bg-secondary text-secondary-foreground',
+  in_progress: 'bg-blue-500/20 text-blue-700 border-blue-500/40 dark:text-blue-400',
+  done:        'bg-blue-500/20 text-blue-700 border-blue-500/40 dark:text-blue-400',
+  submitted:   'bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400',
+  passed:      'bg-green-500/20 text-green-700 border-green-500/40 dark:text-green-400',
+  failed:      'bg-destructive/20 text-destructive border-destructive/40',
 };
 
 // ============================================================
@@ -399,21 +410,21 @@ function DashboardTab({ campaigns, submissions, users, socmedRole, currentUid }:
 
   const activeCampaigns = visibleCampaigns.filter(c => c.status === 'active');
   const pendingValidation = visibleCampaigns.filter(c => c.status === 'pending' || c.status === 'manager_approved');
-  const toCheck = mySubs.filter(s => s.status === 'submitted');
-  const approved = mySubs.filter(s => s.status === 'approved');
+  const toCheck = mySubs.filter(s => s.overall_status === 'submitted');
+  const passed = mySubs.filter(s => s.overall_status === 'passed');
 
   const stats = isAgent
     ? [
       { label: 'My Active Campaigns', value: activeCampaigns.length,             color: 'text-green-600 dark:text-green-400' },
-      { label: 'My Pending Tasks',     value: mySubs.filter(s => s.status === 'pending').length, color: 'text-yellow-600 dark:text-yellow-400' },
+      { label: 'My Pending Tasks',     value: mySubs.filter(s => s.overall_status === 'pending' || s.overall_status === 'in_progress').length, color: 'text-yellow-600 dark:text-yellow-400' },
       { label: 'Awaiting Review',      value: toCheck.length,                    color: 'text-blue-600 dark:text-blue-400' },
-      { label: 'My Tasks Approved',    value: approved.length,                   color: 'text-primary' },
+      { label: 'My Tasks Passed',      value: passed.length,                     color: 'text-primary' },
     ]
     : [
       { label: 'Active Campaigns',     value: activeCampaigns.length,            color: 'text-green-600 dark:text-green-400' },
       { label: 'Pending Validation',   value: pendingValidation.length,          color: 'text-yellow-600 dark:text-yellow-400' },
       { label: 'Submissions to Check', value: toCheck.length,                    color: 'text-blue-600 dark:text-blue-400' },
-      { label: 'Tasks Approved',       value: approved.length,                   color: 'text-primary' },
+      { label: 'Submissions Passed',   value: passed.length,                     color: 'text-primary' },
     ];
 
   return (
@@ -439,9 +450,9 @@ function DashboardTab({ campaigns, submissions, users, socmedRole, currentUid }:
               const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
               const agents: string[] = parseJson(c.target_agents) || [];
               const totalExpected = isAgent ? subtasks.length : subtasks.length * agents.length;
-              const approvedCount = isAgent
-                ? mySubs.filter(s => s.campaign_id === c.id && s.status === 'approved').length
-                : submissions.filter(s => s.campaign_id === c.id && s.status === 'approved').length;
+              const approvedCount = (isAgent ? mySubs : submissions)
+                .filter(s => s.campaign_id === c.id)
+                .reduce((sum, s) => sum + (s.subtasks?.filter(st => st.status === 'passed').length || 0), 0);
               return (
                 <Card key={c.id}>
                   <CardContent className="pt-4 space-y-3">
@@ -565,7 +576,9 @@ function CampaignsTab({ campaigns, submissions, users, socmedRole, currentUid, g
             const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
             const agents: string[] = parseJson(c.target_agents) || [];
             const totalExpected = subtasks.length * agents.length;
-            const approvedCount = submissions.filter(s => s.campaign_id === c.id && s.status === 'approved').length;
+            const approvedCount = submissions
+              .filter(s => s.campaign_id === c.id)
+              .reduce((sum, s) => sum + (s.subtasks?.filter(st => st.status === 'passed').length || 0), 0);
 
             return (
               <Card key={c.id} className="relative">
@@ -836,6 +849,12 @@ function RolloutConfig({ campaign, users, groups, getToken, mode = 'create', onB
   const [deadline, setDeadline] = useState(
     isEdit && campaign.deadline ? campaign.deadline : new Date().toISOString().split('T')[0]
   );
+  const [requireScreenshot, setRequireScreenshot] = useState<boolean>(
+    isEdit ? (campaign.require_screenshot !== false) : true
+  );
+  const [allowMultipleUrls, setAllowMultipleUrls] = useState<boolean>(
+    isEdit ? (campaign.allow_multiple_urls !== false) : true
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -866,9 +885,16 @@ function RolloutConfig({ campaign, users, groups, getToken, mode = 'create', onB
   const handleRollout = async () => {
     setBusy(true); setError('');
     const token = await getToken();
-    const result = isEdit
-      ? await editRollout(campaign.id, subtasks, Array.from(selectedAgents), deadline, token)
-      : await rolloutCampaign(campaign.id, subtasks, Array.from(selectedAgents), deadline, token);
+    const args = [
+      campaign.id,
+      subtasks,
+      Array.from(selectedAgents),
+      deadline,
+      requireScreenshot,
+      allowMultipleUrls,
+      token,
+    ] as const;
+    const result = isEdit ? await editRollout(...args) : await rolloutCampaign(...args);
     setBusy(false);
     if (result.success) onBack();
     else setError(result.error || (isEdit ? 'Save failed' : 'Rollout failed'));
@@ -885,6 +911,29 @@ function RolloutConfig({ campaign, users, groups, getToken, mode = 'create', onB
           <p className="font-semibold">{campaign.title}</p>
           <a href={campaign.url} target="_blank" rel="noopener noreferrer"
             className="text-xs text-blue-600 hover:underline dark:text-blue-400">{campaign.url}</a>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-4 space-y-2">
+          <SectionLabel>Proof Requirements</SectionLabel>
+          <label className="flex items-center gap-2 cursor-pointer text-sm">
+            <Checkbox
+              checked={requireScreenshot}
+              onCheckedChange={v => setRequireScreenshot(!!v)}
+            />
+            <span>Require screenshot URL</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm">
+            <Checkbox
+              checked={allowMultipleUrls}
+              onCheckedChange={v => setAllowMultipleUrls(!!v)}
+            />
+            <span>Allow multiple proof URLs (otherwise exactly one URL accepted)</span>
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Each agent provides proof once per campaign — one screenshot (if required) and one or many URLs depending on this setting.
+          </p>
         </CardContent>
       </Card>
 
@@ -1005,125 +1054,191 @@ function RolloutConfig({ campaign, users, groups, getToken, mode = 'create', onB
 function MyTasksTab({ campaigns, submissions, currentUid, getToken }: {
   campaigns: Campaign[]; submissions: Submission[]; currentUid: string; getToken: () => Promise<string>;
 }) {
-  const mySubmissions = submissions.filter(s => s.agent_id === currentUid);
+  const mySubmissions = submissions.filter(s => s.agent_id === currentUid && Array.isArray(s.subtasks));
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, Submission[]>();
-    for (const s of mySubmissions) {
-      const arr = map.get(s.campaign_id) || [];
-      arr.push(s);
-      map.set(s.campaign_id, arr);
-    }
-    return map;
-  }, [mySubmissions]);
-
-  if (grouped.size === 0) return <EmptyState icon="📝" text="No tasks assigned to you yet" />;
+  if (mySubmissions.length === 0) return <EmptyState icon="📝" text="No tasks assigned to you yet" />;
 
   return (
     <div className="space-y-4">
-      {Array.from(grouped.entries()).map(([campaignId, subs]) => {
-        const campaign = campaigns.find(c => c.id === campaignId);
+      {mySubmissions.map(s => {
+        const campaign = campaigns.find(c => c.id === s.campaign_id);
         if (!campaign) return null;
-        return (
-          <Card key={campaignId}>
-            <CardContent className="pt-4 space-y-3">
-              <div className="flex justify-between items-start flex-wrap gap-2">
-                <div>
-                  <p className="font-semibold text-sm">{campaign.title}</p>
-                  <a href={campaign.url} target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline dark:text-blue-400">{campaign.url}</a>
-                </div>
-                {campaign.deadline && (
-                  <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400">
-                    Due: {campaign.deadline}
-                  </Badge>
-                )}
-              </div>
-              <div className="space-y-2">
-                {subs.map(s => (
-                  <SubmissionCard key={s.id} submission={s} getToken={getToken} />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        );
+        return <AgentSubmissionCard key={s.id} submission={s} campaign={campaign} getToken={getToken} />;
       })}
     </div>
   );
 }
 
-function SubmissionCard({ submission: s, getToken }: { submission: Submission; getToken: () => Promise<string> }) {
-  const [proofUrl, setProofUrl] = useState('');
-  const [proofNote, setProofNote] = useState('');
-  const [busy, setBusy] = useState(false);
+function AgentSubmissionCard({ submission: s, campaign: c, getToken }: {
+  submission: Submission; campaign: Campaign; getToken: () => Promise<string>;
+}) {
+  const requireScreenshot = c.require_screenshot !== false;
+  const allowMultipleUrls = c.allow_multiple_urls !== false;
+
+  const [urls, setUrls] = useState<string[]>(() =>
+    s.proof_urls && s.proof_urls.length > 0 ? s.proof_urls : ['']
+  );
+  const [screenshot, setScreenshot] = useState<string>(s.proof_screenshot_url || '');
+  const [note, setNote] = useState<string>(s.proof_note || '');
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const handleSubmitProof = async () => {
-    if (!proofUrl.trim()) { setError('Proof URL is required'); return; }
-    setBusy(true); setError('');
+  const isLocked = !!s.submitted_at;
+  const allDone = s.subtasks.length > 0 && s.subtasks.every(st => st.status !== 'pending');
+
+  const handleToggleSubtask = async (st: SubtaskItem) => {
+    if (isLocked) return;
+    if (st.status !== 'pending' && st.status !== 'done') return;
+    setBusy(st.type); setError('');
     const token = await getToken();
-    const result = await submitProof(s.id, proofUrl, proofNote, token);
-    setBusy(false);
-    if (result.success) { setProofUrl(''); setProofNote(''); }
-    else setError(result.error || 'Failed');
+    const result = st.status === 'pending'
+      ? await markSubtaskDone(s.id, st.type, token)
+      : await unmarkSubtaskDone(s.id, st.type, token);
+    setBusy(null);
+    if (!result.success) setError(result.error || 'Failed');
+  };
+
+  const handleSubmitProof = async () => {
+    setError('');
+    const cleanUrls = urls.map(u => u.trim()).filter(Boolean);
+    if (cleanUrls.length === 0) { setError('At least one proof URL is required.'); return; }
+    if (!allowMultipleUrls && cleanUrls.length > 1) { setError('Only one URL is allowed for this campaign.'); return; }
+    if (requireScreenshot && !screenshot.trim()) { setError('Screenshot URL is required.'); return; }
+
+    setBusy('submit');
+    const token = await getToken();
+    const result = await submitCampaignProof(s.id, cleanUrls, screenshot.trim() || null, note.trim(), token);
+    setBusy(null);
+    if (!result.success) setError(result.error || 'Failed to submit proof.');
   };
 
   return (
-    <div className="bg-muted rounded-lg p-3 space-y-2">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-lg">{SUBTASK_ICONS[s.subtask_type] || ''}</span>
-        <span className="font-semibold text-sm">{s.subtask_type}</span>
-        <StatusBadge status={s.status} map={SUB_STATUS_CLASS} />
-      </div>
-      {s.subtask_instruction && <p className="text-xs text-muted-foreground">{s.subtask_instruction}</p>}
-
-      {s.checker_note && s.status === 'flagged' && (
-        <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-2 text-xs text-orange-700 dark:text-orange-400">
-          Flagged: {s.checker_note}
-        </div>
-      )}
-      {s.checker_note && s.status === 'rejected' && (
-        <div className="bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-xs text-destructive">
-          Rejected: {s.checker_note}
-        </div>
-      )}
-      {s.checker_note && s.status === 'approved' && (
-        <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2 text-xs text-green-700 dark:text-green-400">
-          Approved: {s.checker_note}
-        </div>
-      )}
-
-      {(s.status === 'pending' || s.status === 'rejected' || s.status === 'flagged') && (
-        <div className="space-y-2">
-          <Input value={proofUrl} onChange={e => setProofUrl(e.target.value)} placeholder="Proof URL (required)" />
-          <Input value={proofNote} onChange={e => setProofNote(e.target.value)} placeholder="Note (optional)" />
-          {error && <p className="text-xs text-destructive">{error}</p>}
-          <div className="flex justify-end">
-            <Button size="sm" onClick={handleSubmitProof} disabled={busy}>
-              {busy ? 'Submitting...' : 'Submit Proof'}
-            </Button>
+    <Card>
+      <CardContent className="p-3 space-y-2">
+        <div className="flex justify-between items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-sm truncate">{c.title}</p>
+            <a href={c.url} target="_blank" rel="noopener noreferrer"
+              className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <StatusBadge status={s.overall_status} map={SUB_STATUS_CLASS} />
+            {c.deadline && (
+              <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400">
+                Due {c.deadline}
+              </Badge>
+            )}
           </div>
         </div>
-      )}
 
-      {s.status === 'submitted' && (
-        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2 text-xs text-yellow-700 dark:text-yellow-400">
-          Awaiting checker review —{' '}
-          <a href={s.proof_url || ''} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
-            {s.proof_url}
-          </a>
+        <div className="space-y-1.5">
+          <SectionLabel>Subtasks</SectionLabel>
+          {s.subtasks.map(st => {
+            const checked = st.status !== 'pending';
+            const lockedThis = isLocked || st.status === 'passed' || st.status === 'failed';
+            return (
+              <div key={st.type} className="flex items-start gap-2 bg-muted rounded px-2 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleToggleSubtask(st)}
+                  disabled={lockedThis || busy === st.type}
+                  className={cn(
+                    'mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded border shrink-0',
+                    checked
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background border-input',
+                    lockedThis && 'opacity-60 cursor-not-allowed',
+                  )}
+                  aria-label={checked ? 'Unmark done' : 'Mark done'}
+                >
+                  {checked ? '✓' : ''}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm">
+                    <span className="mr-1">{SUBTASK_ICONS[st.type] || ''}</span>
+                    <span className="font-medium">{st.type}</span>
+                    {st.instruction && <span className="text-muted-foreground">: {st.instruction}</span>}
+                  </p>
+                  {st.status === 'failed' && st.failure_reason && (
+                    <p className="text-xs text-destructive mt-0.5">Failed: {st.failure_reason}</p>
+                  )}
+                  {st.status === 'passed' && (
+                    <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">Passed by checker</p>
+                  )}
+                </div>
+                <StatusBadge status={st.status} map={SUB_STATUS_CLASS} />
+              </div>
+            );
+          })}
         </div>
-      )}
 
-      {s.status === 'approved' && s.proof_url && !s.checker_note && (
-        <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2 text-xs text-green-700 dark:text-green-400">
-          Approved —{' '}
-          <a href={s.proof_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
-            {s.proof_url}
-          </a>
-        </div>
-      )}
-    </div>
+        {!isLocked && (
+          <div className="space-y-2">
+            <SectionLabel>
+              Proof {allowMultipleUrls ? '(URLs, screenshot' : '(single URL, screenshot'}
+              {requireScreenshot ? ' required)' : ' optional)'}
+            </SectionLabel>
+            <div className="space-y-1.5">
+              {urls.map((u, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    value={u}
+                    onChange={e => setUrls(urls.map((x, idx) => idx === i ? e.target.value : x))}
+                    placeholder={i === 0 ? 'Proof URL (required)' : 'Additional URL'}
+                  />
+                  {urls.length > 1 && (
+                    <Button size="icon" variant="ghost" className="shrink-0"
+                      onClick={() => setUrls(urls.filter((_, idx) => idx !== i))}>
+                      <span aria-hidden>×</span>
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {allowMultipleUrls && (
+                <Button size="sm" variant="outline" onClick={() => setUrls([...urls, ''])}>
+                  + Add URL
+                </Button>
+              )}
+            </div>
+            <Input
+              value={screenshot}
+              onChange={e => setScreenshot(e.target.value)}
+              placeholder={requireScreenshot ? 'Screenshot URL (required)' : 'Screenshot URL (optional)'}
+            />
+            <Input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optional)" />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex items-center justify-between gap-2">
+              {!allDone && (
+                <p className="text-xs text-muted-foreground">Mark every subtask done before submitting proof.</p>
+              )}
+              <Button
+                size="sm"
+                onClick={handleSubmitProof}
+                disabled={!allDone || busy === 'submit'}
+                className="bg-green-600 hover:bg-green-700 ml-auto"
+              >
+                {busy === 'submit' ? 'Submitting...' : 'Submit Proof'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {isLocked && (
+          <div className="space-y-1 bg-muted/50 rounded p-2">
+            <SectionLabel>Submitted Proof</SectionLabel>
+            {s.proof_urls?.map((u, i) => (
+              <a key={i} href={u} target="_blank" rel="noopener noreferrer"
+                className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{u}</a>
+            ))}
+            {s.proof_screenshot_url && (
+              <a href={s.proof_screenshot_url} target="_blank" rel="noopener noreferrer"
+                className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">📷 {s.proof_screenshot_url}</a>
+            )}
+            {s.proof_note && <p className="text-xs text-muted-foreground">Note: {s.proof_note}</p>}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1131,46 +1246,25 @@ function SubmissionCard({ submission: s, getToken }: { submission: Submission; g
 // TAB: CHECK QUEUE (Checker)
 // ============================================================
 
-function CheckQueueTab({ submissions, campaigns, users, currentUid, getToken }: {
+function CheckQueueTab({ submissions, campaigns, users, currentUid: _currentUid, getToken }: {
   submissions: Submission[]; campaigns: Campaign[]; users: UserProfile[]; currentUid: string; getToken: () => Promise<string>;
 }) {
-  const toCheck = submissions.filter(s => s.status === 'submitted');
-  const recentlyChecked = submissions
-    .filter(s => s.checked_by === currentUid && ['approved', 'rejected', 'flagged'].includes(s.status))
-    .sort((a, b) => (b.checked_at?.seconds || 0) - (a.checked_at?.seconds || 0))
-    .slice(0, 5);
+  const toCheck = submissions.filter(s =>
+    Array.isArray(s.subtasks) &&
+    (s.overall_status === 'submitted' || s.subtasks.some(st => st.status === 'done'))
+  );
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <SectionLabel>Submissions to Review</SectionLabel>
-        {toCheck.length === 0 ? (
-          <EmptyState icon="🔍" text="No submissions to check right now" />
-        ) : (
-          <div className="space-y-3">
-            {toCheck.map(s => (
-              <CheckCard key={s.id} submission={s} campaigns={campaigns} users={users} getToken={getToken} />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {recentlyChecked.length > 0 && (
-        <div className="space-y-2">
-          <SectionLabel>Recently Reviewed</SectionLabel>
-          {recentlyChecked.map(s => {
+    <div className="space-y-3">
+      <SectionLabel>Submissions to Review</SectionLabel>
+      {toCheck.length === 0 ? (
+        <EmptyState icon="🔍" text="No submissions to check right now" />
+      ) : (
+        <div className="space-y-3">
+          {toCheck.map(s => {
             const campaign = campaigns.find(c => c.id === s.campaign_id);
-            return (
-              <Card key={s.id} className="opacity-70">
-                <CardContent className="pt-3 pb-3 flex items-center gap-2 flex-wrap">
-                  <UserAvatar name={getUserName(s.agent_id, users)} size="sm" />
-                  <span className="text-xs">{getUserName(s.agent_id, users)}</span>
-                  <Badge variant="secondary">{s.subtask_type}</Badge>
-                  <StatusBadge status={s.status} map={SUB_STATUS_CLASS} />
-                  {campaign && <span className="text-xs text-muted-foreground">{campaign.title}</span>}
-                </CardContent>
-              </Card>
-            );
+            if (!campaign) return null;
+            return <CheckCard key={s.id} submission={s} campaign={campaign} users={users} getToken={getToken} />;
           })}
         </div>
       )}
@@ -1178,60 +1272,95 @@ function CheckQueueTab({ submissions, campaigns, users, currentUid, getToken }: 
   );
 }
 
-function CheckCard({ submission: s, campaigns, users, getToken }: {
-  submission: Submission; campaigns: Campaign[]; users: UserProfile[]; getToken: () => Promise<string>;
+function CheckCard({ submission: s, campaign: c, users, getToken }: {
+  submission: Submission; campaign: Campaign; users: UserProfile[]; getToken: () => Promise<string>;
 }) {
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const campaign = campaigns.find(c => c.id === s.campaign_id);
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
-  const handleCheck = async (status: 'approved' | 'rejected' | 'flagged') => {
-    setBusy(true);
+  const handleGrade = async (st: SubtaskItem, newStatus: 'passed' | 'failed') => {
+    setError('');
+    if (newStatus === 'failed' && !(reasons[st.type] || '').trim()) {
+      setError('Failure reason is required to mark this subtask failed.');
+      return;
+    }
+    setBusy(st.type);
     const token = await getToken();
-    await checkSubmission(s.id, status, note, token);
-    setBusy(false); setNote('');
+    const result = await checkSubtask(s.id, st.type, newStatus, reasons[st.type] || '', token);
+    setBusy(null);
+    if (!result.success) setError(result.error || 'Failed');
   };
 
   return (
     <Card>
-      <CardContent className="pt-4 space-y-3">
+      <CardContent className="p-3 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
           <UserAvatar name={getUserName(s.agent_id, users)} size="md" />
-          <div>
-            <p className="font-semibold text-sm">{getUserName(s.agent_id, users)}</p>
-            {s.submitted_at && (
-              <p className="text-xs text-muted-foreground">
-                {s.submitted_at?.toDate ? s.submitted_at.toDate().toLocaleDateString() : ''}
-              </p>
-            )}
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-sm truncate">{getUserName(s.agent_id, users)}</p>
+            <p className="text-xs text-muted-foreground truncate">{c.title}</p>
           </div>
-          <Badge variant="secondary">{s.subtask_type}</Badge>
-          {campaign && <Badge variant="outline">{campaign.title}</Badge>}
+          <StatusBadge status={s.overall_status} map={SUB_STATUS_CLASS} />
         </div>
 
-        <a href={s.proof_url || '#'} target="_blank" rel="noopener noreferrer"
-          className="text-sm text-blue-600 hover:underline dark:text-blue-400 break-all block">
-          {s.proof_url}
-        </a>
-
-        {s.proof_note && (
-          <div className="bg-muted rounded-lg px-3 py-2 text-xs text-muted-foreground">
-            Agent note: {s.proof_note}
-          </div>
-        )}
-
-        <Input value={note} onChange={e => setNote(e.target.value)} placeholder="Checker note (required for reject/flag)" />
-        <div className="flex gap-2 flex-wrap">
-          <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleCheck('approved')} disabled={busy}>
-            Approve ✅
-          </Button>
-          <Button size="sm" variant="destructive" onClick={() => handleCheck('rejected')} disabled={busy || !note.trim()}>
-            Reject ✗
-          </Button>
-          <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-white" onClick={() => handleCheck('flagged')} disabled={busy || !note.trim()}>
-            Flag 🚩
-          </Button>
+        <div className="bg-muted rounded p-2 space-y-1">
+          <p className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wide">Proof</p>
+          {(s.proof_urls || []).map((u, i) => (
+            <a key={i} href={u} target="_blank" rel="noopener noreferrer"
+              className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{u}</a>
+          ))}
+          {s.proof_screenshot_url && (
+            <a href={s.proof_screenshot_url} target="_blank" rel="noopener noreferrer"
+              className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">📷 {s.proof_screenshot_url}</a>
+          )}
+          {s.proof_note && <p className="text-xs text-muted-foreground">Note: {s.proof_note}</p>}
         </div>
+
+        <div className="space-y-2">
+          {s.subtasks.map(st => {
+            const graded = st.status === 'passed' || st.status === 'failed';
+            return (
+              <div key={st.type} className="rounded border bg-background p-2 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm">
+                    <span className="mr-1">{SUBTASK_ICONS[st.type] || ''}</span>
+                    <span className="font-medium">{st.type}</span>
+                    {st.instruction && <span className="text-muted-foreground">: {st.instruction}</span>}
+                  </span>
+                  <StatusBadge status={st.status} map={SUB_STATUS_CLASS} />
+                </div>
+                {st.status === 'failed' && st.failure_reason && (
+                  <p className="text-xs text-destructive">Reason: {st.failure_reason}</p>
+                )}
+                {!graded && (
+                  <>
+                    <Input
+                      value={reasons[st.type] || ''}
+                      onChange={e => setReasons({ ...reasons, [st.type]: e.target.value })}
+                      placeholder="Failure reason (required to fail)"
+                      className="text-xs h-8"
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700"
+                        onClick={() => handleGrade(st, 'passed')}
+                        disabled={busy === st.type}>
+                        Pass
+                      </Button>
+                      <Button size="sm" variant="destructive"
+                        onClick={() => handleGrade(st, 'failed')}
+                        disabled={busy === st.type || !(reasons[st.type] || '').trim()}>
+                        Fail
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
       </CardContent>
     </Card>
   );
@@ -1246,22 +1375,27 @@ function TeamTab({ submissions, users }: { submissions: Submission[]; users: Use
 
   const agentStats = useMemo(() => {
     return agents.map(a => {
-      const subs = submissions.filter(s => s.agent_id === a.uid);
-      const approved = subs.filter(s => s.status === 'approved').length;
-      const submitted = subs.filter(s => s.status === 'submitted').length;
-      const flagged = subs.filter(s => s.status === 'flagged').length;
-      const rejected = subs.filter(s => s.status === 'rejected').length;
-      const pending = subs.filter(s => s.status === 'pending').length;
-      const total = subs.length;
-      const rate = total > 0 ? Math.round((approved / total) * 100) : 0;
-      return { user: a, approved, submitted, flagged, rejected, pending, total, rate };
+      const subs = submissions.filter(s => s.agent_id === a.uid && Array.isArray(s.subtasks));
+      let passed = 0, failed = 0, awaitingReview = 0, doneAwaitingProof = 0, pending = 0, total = 0;
+      for (const s of subs) {
+        for (const st of s.subtasks) {
+          total += 1;
+          if (st.status === 'passed') passed += 1;
+          else if (st.status === 'failed') failed += 1;
+          else if (st.status === 'done' && s.submitted_at) awaitingReview += 1;
+          else if (st.status === 'done') doneAwaitingProof += 1;
+          else pending += 1;
+        }
+      }
+      const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
+      return { user: a, passed, failed, awaitingReview, doneAwaitingProof, pending, total, rate };
     });
   }, [agents, submissions]);
 
   const exportCsv = () => {
-    const header = 'Name,Role,Total,Approved,Submitted,Flagged,Rejected,Pending,Approval Rate %';
+    const header = 'Name,Role,Total Subtasks,Passed,Failed,Awaiting Review,Done Awaiting Proof,Pending,Pass Rate %';
     const rows = agentStats.map(a =>
-      `"${a.user.displayName || ''}","Agent",${a.total},${a.approved},${a.submitted},${a.flagged},${a.rejected},${a.pending},${a.rate}`
+      `"${a.user.displayName || ''}","Agent",${a.total},${a.passed},${a.failed},${a.awaitingReview},${a.doneAwaitingProof},${a.pending},${a.rate}`
     );
     const csv = [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -1289,17 +1423,17 @@ function TeamTab({ submissions, users }: { submissions: Submission[]; users: Use
                   <UserAvatar name={a.user.displayName} size="lg" />
                   <div>
                     <p className="font-semibold text-sm">{a.user.displayName || a.user.email}</p>
-                    <p className="text-xs text-muted-foreground">Total: {a.total} · Approval rate: {a.rate}%</p>
+                    <p className="text-xs text-muted-foreground">Total subtasks: {a.total} · Pass rate: {a.rate}%</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-5 gap-1.5">
                   {[
-                    { label: 'Approved', val: a.approved, cls: 'text-green-600 dark:text-green-400' },
-                    { label: 'Submitted', val: a.submitted, cls: 'text-yellow-600 dark:text-yellow-400' },
-                    { label: 'Flagged', val: a.flagged, cls: 'text-orange-600 dark:text-orange-400' },
-                    { label: 'Rejected', val: a.rejected, cls: 'text-destructive' },
-                    { label: 'Pending', val: a.pending, cls: 'text-muted-foreground' },
+                    { label: 'Passed',  val: a.passed,            cls: 'text-green-600 dark:text-green-400' },
+                    { label: 'Failed',  val: a.failed,            cls: 'text-destructive' },
+                    { label: 'Review',  val: a.awaitingReview,    cls: 'text-yellow-600 dark:text-yellow-400' },
+                    { label: 'Done',    val: a.doneAwaitingProof, cls: 'text-blue-600 dark:text-blue-400' },
+                    { label: 'Pending', val: a.pending,           cls: 'text-muted-foreground' },
                   ].map(st => (
                     <div key={st.label} className="bg-muted rounded-lg px-1 py-2 text-center">
                       <p className={cn('text-base font-bold', st.cls)}>{st.val}</p>

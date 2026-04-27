@@ -27,6 +27,39 @@ function canManageUsers(actor: VerifiedActor): boolean {
   return actor.isPlatformAdmin || role === 'Admin' || role === 'Manager';
 }
 
+function canCheck(actor: VerifiedActor): boolean {
+  const role = actor.profile?.socmedRole;
+  return actor.isPlatformAdmin
+    || role === 'Admin'
+    || role === 'Manager'
+    || role === 'Validator'
+    || role === 'Checker';
+}
+
+interface SubtaskItem {
+  type: string;
+  instruction: string;
+  status: 'pending' | 'done' | 'passed' | 'failed';
+  failure_reason: string | null;
+  checked_by: string | null;
+  checked_at: any;
+}
+
+function deriveOverallStatus(subtasks: SubtaskItem[], hasProof: boolean): 'pending' | 'in_progress' | 'submitted' | 'passed' | 'failed' {
+  if (subtasks.length === 0) return 'pending';
+  const someFailed = subtasks.some(st => st.status === 'failed');
+  const allPassed = subtasks.every(st => st.status === 'passed');
+  const allDoneOrGraded = subtasks.every(st => st.status === 'done' || st.status === 'passed' || st.status === 'failed');
+  const allPending = subtasks.every(st => st.status === 'pending');
+
+  if (allPassed) return 'passed';
+  if (hasProof && someFailed) return 'failed';
+  if (hasProof) return 'submitted';
+  if (allPending) return 'pending';
+  if (allDoneOrGraded) return 'in_progress';
+  return 'in_progress';
+}
+
 // ---- Campaign Actions ----
 
 export interface CreateCampaignInput {
@@ -154,11 +187,24 @@ export interface SubtaskDef {
   instruction: string;
 }
 
+function buildSubtaskItems(defs: SubtaskDef[]): SubtaskItem[] {
+  return defs.map(d => ({
+    type: d.type,
+    instruction: d.instruction,
+    status: 'pending',
+    failure_reason: null,
+    checked_by: null,
+    checked_at: null,
+  }));
+}
+
 export async function rolloutCampaign(
   campaignId: string,
   subtasks: SubtaskDef[],
   targetAgentIds: string[],
   deadline: string,
+  requireScreenshot: boolean,
+  allowMultipleUrls: boolean,
   actorToken: ActorToken
 ) {
   try {
@@ -167,49 +213,53 @@ export async function rolloutCampaign(
       return { success: false, error: 'Permission denied. Only Admin, Manager, or Validator can roll out campaigns.' };
     }
 
-    // Check for existing submissions to make this idempotent
+    // Existing submissions for this campaign keyed by agent_id (new shape: one per agent)
     const existingSnap = await adminDb.collection('socmedSubmissions')
       .where('campaign_id', '==', campaignId)
       .get();
-    const existingKeys = new Set(
-      existingSnap.docs.map(d => `${d.data().agent_id}__${d.data().subtask_type}`)
-    );
 
     const batch = adminDb.batch();
 
-    // Update the campaign
+    // Delete legacy per-(agent,subtask) submissions that don't match the new (agent) keying.
+    // New-shape submissions have a `subtasks` array; legacy ones have `subtask_type`.
+    const existingByAgent = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+    for (const doc of existingSnap.docs) {
+      const data = doc.data();
+      if (Array.isArray(data.subtasks)) {
+        existingByAgent.set(data.agent_id, doc);
+      } else {
+        batch.delete(doc.ref);
+      }
+    }
+
     const campaignRef = adminDb.collection('socmedCampaigns').doc(campaignId);
     batch.update(campaignRef, {
       status: 'active',
       subtasks: JSON.stringify(subtasks),
       target_agents: JSON.stringify(targetAgentIds),
       deadline,
+      require_screenshot: !!requireScreenshot,
+      allow_multiple_urls: !!allowMultipleUrls,
     });
 
-    // Create one submission per agent per subtask
+    const freshSubtasks = buildSubtaskItems(subtasks);
     for (const agentId of targetAgentIds) {
-      for (const subtask of subtasks) {
-        const key = `${agentId}__${subtask.type}`;
-        if (existingKeys.has(key)) continue;
-
-        const subId = generateId();
-        const subRef = adminDb.collection('socmedSubmissions').doc(subId);
-        batch.set(subRef, {
-          id: subId,
-          campaign_id: campaignId,
-          agent_id: agentId,
-          subtask_type: subtask.type,
-          subtask_instruction: subtask.instruction,
-          status: 'pending',
-          proof_url: null,
-          proof_note: null,
-          submitted_at: null,
-          checked_by: null,
-          checker_note: null,
-          checked_at: null,
-          created_at: FieldValue.serverTimestamp(),
-        });
-      }
+      if (existingByAgent.has(agentId)) continue;
+      const subId = generateId();
+      const subRef = adminDb.collection('socmedSubmissions').doc(subId);
+      batch.set(subRef, {
+        id: subId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        subtasks: freshSubtasks,
+        proof_urls: null,
+        proof_screenshot_url: null,
+        proof_note: null,
+        submitted_at: null,
+        overall_status: 'pending',
+        created_at: FieldValue.serverTimestamp(),
+        updated_at: FieldValue.serverTimestamp(),
+      });
     }
 
     await batch.commit();
@@ -224,6 +274,8 @@ export async function editRollout(
   subtasks: SubtaskDef[],
   targetAgentIds: string[],
   deadline: string,
+  requireScreenshot: boolean,
+  allowMultipleUrls: boolean,
   actorToken: ActorToken
 ) {
   try {
@@ -232,72 +284,93 @@ export async function editRollout(
       return { success: false, error: 'Permission denied. Only Admin, Manager, or Validator can edit rollouts.' };
     }
 
-    const desiredKeys = new Set<string>();
-    for (const agentId of targetAgentIds) {
-      for (const st of subtasks) {
-        desiredKeys.add(`${agentId}__${st.type}`);
-      }
-    }
+    const desiredAgentSet = new Set(targetAgentIds);
+    const desiredTypes = subtasks.map(s => s.type);
+    const instructionByType = new Map(subtasks.map(s => [s.type, s.instruction]));
 
     const existingSnap = await adminDb.collection('socmedSubmissions')
       .where('campaign_id', '==', campaignId)
       .get();
 
-    const existingByKey = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
-    for (const doc of existingSnap.docs) {
-      const data = doc.data();
-      existingByKey.set(`${data.agent_id}__${data.subtask_type}`, doc);
-    }
-
     const batch = adminDb.batch();
 
+    // Index existing per-agent submissions; delete any legacy per-(agent,subtask) docs.
+    const existingByAgent = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+    for (const doc of existingSnap.docs) {
+      const data = doc.data();
+      if (Array.isArray(data.subtasks)) {
+        existingByAgent.set(data.agent_id, doc);
+      } else {
+        batch.delete(doc.ref);
+      }
+    }
+
+    // Update campaign config
     const campaignRef = adminDb.collection('socmedCampaigns').doc(campaignId);
     batch.update(campaignRef, {
       subtasks: JSON.stringify(subtasks),
       target_agents: JSON.stringify(targetAgentIds),
       deadline,
+      require_screenshot: !!requireScreenshot,
+      allow_multiple_urls: !!allowMultipleUrls,
     });
 
-    // Delete submissions whose (agent, subtask) combo is no longer desired
-    for (const [key, doc] of existingByKey) {
-      if (!desiredKeys.has(key)) {
+    // Drop submissions for agents removed from the target list
+    for (const [agentId, doc] of existingByAgent) {
+      if (!desiredAgentSet.has(agentId)) {
         batch.delete(doc.ref);
       }
     }
 
-    // Update instructions on still-existing combos when the subtask instruction has changed
-    const instructionByType = new Map(subtasks.map(s => [s.type, s.instruction]));
-    for (const [key, doc] of existingByKey) {
-      if (!desiredKeys.has(key)) continue;
-      const data = doc.data();
-      const newInstruction = instructionByType.get(data.subtask_type);
-      if (newInstruction !== undefined && newInstruction !== data.subtask_instruction) {
-        batch.update(doc.ref, { subtask_instruction: newInstruction });
-      }
-    }
-
-    // Create missing submissions for new (agent, subtask) combos
+    // Reconcile surviving submissions: for each agent still in the target list,
+    // rebuild the subtasks array preserving status of subtasks whose type still applies,
+    // adding fresh 'pending' for newly added types, dropping types that were removed.
     for (const agentId of targetAgentIds) {
-      for (const subtask of subtasks) {
-        const key = `${agentId}__${subtask.type}`;
-        if (existingByKey.has(key)) continue;
-
+      const existingDoc = existingByAgent.get(agentId);
+      if (existingDoc) {
+        const data = existingDoc.data();
+        const oldByType = new Map<string, SubtaskItem>(
+          (data.subtasks as SubtaskItem[]).map(st => [st.type, st])
+        );
+        const newSubtasks: SubtaskItem[] = desiredTypes.map(type => {
+          const old = oldByType.get(type);
+          if (old) {
+            return {
+              ...old,
+              instruction: instructionByType.get(type) || old.instruction,
+            };
+          }
+          return {
+            type,
+            instruction: instructionByType.get(type) || '',
+            status: 'pending',
+            failure_reason: null,
+            checked_by: null,
+            checked_at: null,
+          };
+        });
+        const overall = deriveOverallStatus(newSubtasks, !!data.submitted_at);
+        batch.update(existingDoc.ref, {
+          subtasks: newSubtasks,
+          overall_status: overall,
+          updated_at: FieldValue.serverTimestamp(),
+        });
+      } else {
+        // Newly added agent
         const subId = generateId();
         const subRef = adminDb.collection('socmedSubmissions').doc(subId);
         batch.set(subRef, {
           id: subId,
           campaign_id: campaignId,
           agent_id: agentId,
-          subtask_type: subtask.type,
-          subtask_instruction: subtask.instruction,
-          status: 'pending',
-          proof_url: null,
+          subtasks: buildSubtaskItems(subtasks),
+          proof_urls: null,
+          proof_screenshot_url: null,
           proof_note: null,
           submitted_at: null,
-          checked_by: null,
-          checker_note: null,
-          checked_at: null,
+          overall_status: 'pending',
           created_at: FieldValue.serverTimestamp(),
+          updated_at: FieldValue.serverTimestamp(),
         });
       }
     }
@@ -311,46 +384,189 @@ export async function editRollout(
 
 // ---- Submission Actions ----
 
-export async function submitProof(
+async function setSubtaskStatus(
   submissionId: string,
-  proofUrl: string,
-  proofNote: string,
+  subtaskType: string,
+  newStatus: 'pending' | 'done' | 'passed' | 'failed',
+  failureReason: string | null,
+  checkedByUid: string | null,
+  expectedAgentId: string | null,
+  expectedFromStatuses: ('pending' | 'done' | 'passed' | 'failed')[] | null,
+) {
+  const ref = adminDb.collection('socmedSubmissions').doc(submissionId);
+
+  return adminDb.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { ok: false as const, error: 'Submission not found.' };
+    const data = snap.data()!;
+
+    if (expectedAgentId && data.agent_id !== expectedAgentId) {
+      return { ok: false as const, error: 'You can only modify your own submission.' };
+    }
+
+    const subtasks: SubtaskItem[] = Array.isArray(data.subtasks) ? data.subtasks : [];
+    const idx = subtasks.findIndex(st => st.type === subtaskType);
+    if (idx === -1) return { ok: false as const, error: `Subtask ${subtaskType} not found on this submission.` };
+
+    const current = subtasks[idx];
+    if (expectedFromStatuses && !expectedFromStatuses.includes(current.status)) {
+      return { ok: false as const, error: `Subtask cannot transition from ${current.status} to ${newStatus}.` };
+    }
+
+    const updatedSubtask: SubtaskItem = {
+      ...current,
+      status: newStatus,
+      failure_reason: newStatus === 'failed' ? failureReason : null,
+      checked_by: (newStatus === 'passed' || newStatus === 'failed') ? checkedByUid : current.checked_by,
+      checked_at: (newStatus === 'passed' || newStatus === 'failed') ? FieldValue.serverTimestamp() : current.checked_at,
+    };
+    const newSubtasks = subtasks.map((st, i) => i === idx ? updatedSubtask : st);
+    const hasProof = !!data.submitted_at;
+    const overall = deriveOverallStatus(newSubtasks, hasProof);
+
+    tx.update(ref, {
+      subtasks: newSubtasks,
+      overall_status: overall,
+      updated_at: FieldValue.serverTimestamp(),
+    });
+    return { ok: true as const };
+  });
+}
+
+export async function markSubtaskDone(
+  submissionId: string,
+  subtaskType: string,
   actorToken: ActorToken
 ) {
   try {
-    await resolveActor(actorToken);
-    const ref = adminDb.collection('socmedSubmissions').doc(submissionId);
-
-    await ref.update({
-      status: 'submitted',
-      proof_url: proofUrl,
-      proof_note: proofNote || null,
-      submitted_at: FieldValue.serverTimestamp(),
-    });
-
+    const actor = await resolveActor(actorToken);
+    const result = await setSubtaskStatus(submissionId, subtaskType, 'done', null, null, actor.uid, ['pending']);
+    if (!result.ok) return { success: false, error: result.error };
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
 }
 
-export async function checkSubmission(
+export async function unmarkSubtaskDone(
   submissionId: string,
-  newStatus: 'approved' | 'rejected' | 'flagged',
-  checkerNote: string,
+  subtaskType: string,
+  actorToken: ActorToken
+) {
+  try {
+    const actor = await resolveActor(actorToken);
+    // Only allow unmarking before proof has been submitted (no checked status yet)
+    const ref = adminDb.collection('socmedSubmissions').doc(submissionId);
+    const snap = await ref.get();
+    if (!snap.exists) return { success: false, error: 'Submission not found.' };
+    const data = snap.data()!;
+    if (data.submitted_at) return { success: false, error: 'Proof already submitted; subtasks are locked.' };
+
+    const result = await setSubtaskStatus(submissionId, subtaskType, 'pending', null, null, actor.uid, ['done']);
+    if (!result.ok) return { success: false, error: result.error };
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function submitCampaignProof(
+  submissionId: string,
+  proofUrls: string[],
+  proofScreenshotUrl: string | null,
+  proofNote: string,
   actorToken: ActorToken
 ) {
   try {
     const actor = await resolveActor(actorToken);
     const ref = adminDb.collection('socmedSubmissions').doc(submissionId);
 
-    await ref.update({
-      status: newStatus,
-      checker_note: checkerNote || null,
-      checked_by: actor.uid,
-      checked_at: FieldValue.serverTimestamp(),
-    });
+    return await adminDb.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { success: false, error: 'Submission not found.' };
+      const data = snap.data()!;
 
+      if (data.agent_id !== actor.uid) {
+        return { success: false, error: 'You can only submit proof for your own submission.' };
+      }
+      if (data.submitted_at) {
+        return { success: false, error: 'Proof has already been submitted.' };
+      }
+
+      const subtasks: SubtaskItem[] = Array.isArray(data.subtasks) ? data.subtasks : [];
+      if (subtasks.length === 0) {
+        return { success: false, error: 'No subtasks to submit proof for.' };
+      }
+      if (!subtasks.every(st => st.status === 'done')) {
+        return { success: false, error: 'Mark every subtask as done before submitting proof.' };
+      }
+
+      // Load campaign for config
+      const campaignSnap = await tx.get(adminDb.collection('socmedCampaigns').doc(data.campaign_id));
+      if (!campaignSnap.exists) return { success: false, error: 'Campaign not found.' };
+      const campaign = campaignSnap.data()!;
+      const requireScreenshot = !!campaign.require_screenshot;
+      const allowMultipleUrls = campaign.allow_multiple_urls !== false;
+
+      const cleanUrls = proofUrls.map(u => (u || '').trim()).filter(Boolean);
+      if (cleanUrls.length === 0) {
+        return { success: false, error: 'At least one proof URL is required.' };
+      }
+      if (!allowMultipleUrls && cleanUrls.length > 1) {
+        return { success: false, error: 'This campaign accepts only a single proof URL.' };
+      }
+      const cleanScreenshot = (proofScreenshotUrl || '').trim() || null;
+      if (requireScreenshot && !cleanScreenshot) {
+        return { success: false, error: 'Screenshot URL is required for this campaign.' };
+      }
+
+      tx.update(ref, {
+        proof_urls: cleanUrls,
+        proof_screenshot_url: cleanScreenshot,
+        proof_note: proofNote.trim() || null,
+        submitted_at: FieldValue.serverTimestamp(),
+        overall_status: 'submitted',
+        updated_at: FieldValue.serverTimestamp(),
+      });
+      return { success: true };
+    });
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function checkSubtask(
+  submissionId: string,
+  subtaskType: string,
+  newStatus: 'passed' | 'failed',
+  failureReason: string,
+  actorToken: ActorToken
+) {
+  try {
+    const actor = await resolveActor(actorToken);
+    if (!canCheck(actor)) {
+      return { success: false, error: 'Permission denied. Only Admin, Manager, Validator, or Checker can grade subtasks.' };
+    }
+    if (newStatus === 'failed' && !failureReason.trim()) {
+      return { success: false, error: 'Failure reason is required when marking a subtask failed.' };
+    }
+
+    const ref = adminDb.collection('socmedSubmissions').doc(submissionId);
+    const snap = await ref.get();
+    if (!snap.exists) return { success: false, error: 'Submission not found.' };
+    const data = snap.data()!;
+    if (!data.submitted_at) return { success: false, error: 'Agent has not submitted proof yet.' };
+
+    const result = await setSubtaskStatus(
+      submissionId,
+      subtaskType,
+      newStatus,
+      newStatus === 'failed' ? failureReason.trim() : null,
+      actor.uid,
+      null,
+      ['done', 'passed', 'failed']
+    );
+    if (!result.ok) return { success: false, error: result.error };
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
