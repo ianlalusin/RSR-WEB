@@ -16,6 +16,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   createCampaign,
   approveCampaign,
@@ -83,7 +85,7 @@ interface Submission {
   overall_status: 'pending' | 'in_progress' | 'submitted' | 'passed' | 'failed';
 }
 
-type TabKey = 'dashboard' | 'campaigns' | 'validate' | 'rollout' | 'groups' | 'team' | 'users';
+type TabKey = 'dashboard' | 'campaigns' | 'tasks' | 'checkqueue' | 'groups' | 'team' | 'users';
 
 // ============================================================
 // CONSTANTS
@@ -215,13 +217,13 @@ function getSocmedRole(profile: UserProfile | null, isPlatformAdminClaim: boolea
 function getVisibleTabs(role: SocmedRole | null): { key: TabKey; label: string }[] {
   if (!role) return [];
   const tabs: { key: TabKey; label: string; roles: SocmedRole[] }[] = [
-    { key: 'dashboard', label: 'Dashboard', roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
-    { key: 'campaigns', label: 'Campaigns', roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
-    { key: 'validate',  label: 'Validate',  roles: ['Admin', 'Manager', 'Validator'] },
-    { key: 'rollout',   label: 'Rollout',   roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
-    { key: 'groups',    label: 'Groups',    roles: ['Admin', 'Manager'] },
-    { key: 'team',      label: 'Team',      roles: ['Admin', 'Manager'] },
-    { key: 'users',     label: 'Users',     roles: ['Admin', 'Manager', 'Validator'] },
+    { key: 'dashboard',  label: 'Dashboard',   roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
+    { key: 'campaigns',  label: 'Campaigns',   roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
+    { key: 'tasks',      label: 'Tasks',       roles: ['Agent'] },
+    { key: 'checkqueue', label: 'Check Queue', roles: ['Checker'] },
+    { key: 'groups',     label: 'Groups',      roles: ['Admin', 'Manager'] },
+    { key: 'team',       label: 'Team',        roles: ['Admin', 'Manager'] },
+    { key: 'users',      label: 'Users',       roles: ['Admin', 'Manager', 'Validator'] },
   ];
   return tabs.filter(t => t.roles.includes(role));
 }
@@ -352,21 +354,25 @@ export default function SocMedPage() {
               campaigns={campaigns}
               submissions={submissions}
               users={allUsers}
+              groups={groups}
               socmedRole={socmedRole}
               currentUid={user?.uid || ''}
               getToken={getToken}
             />
           )}
-          {activeTab === 'validate' && (
-            <ValidateTab campaigns={campaigns} users={allUsers} getToken={getToken} />
+          {activeTab === 'tasks' && user && (
+            <MyTasksTab
+              campaigns={campaigns}
+              submissions={submissions}
+              currentUid={user.uid}
+              getToken={getToken}
+            />
           )}
-          {activeTab === 'rollout' && user && (
-            <RolloutTab
+          {activeTab === 'checkqueue' && user && (
+            <CheckQueueTab
               campaigns={campaigns}
               submissions={submissions}
               users={allUsers}
-              groups={groups}
-              socmedRole={socmedRole}
               currentUid={user.uid}
               getToken={getToken}
             />
@@ -488,13 +494,13 @@ function DashboardTab({ campaigns, submissions, users, socmedRole, currentUid }:
 // TAB: CAMPAIGNS
 // ============================================================
 
-function CampaignsTab({ campaigns, submissions, users, socmedRole, currentUid, getToken }: {
-  campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[];
+function CampaignsTab({ campaigns, submissions, users, groups, socmedRole, currentUid, getToken }: {
+  campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[]; groups: SocmedGroup[];
   socmedRole: SocmedRole; currentUid: string; getToken: () => Promise<string>;
 }) {
+  const isStaff = socmedRole === 'Admin' || socmedRole === 'Manager' || socmedRole === 'Validator';
   const canDelete = socmedRole === 'Admin' || socmedRole === 'Manager';
-  const canSeeUnverified = socmedRole === 'Admin' || socmedRole === 'Manager' || socmedRole === 'Validator';
-  const visibleCampaigns = canSeeUnverified
+  const visibleCampaigns = isStaff
     ? campaigns
     : campaigns.filter(c =>
         c.submitted_by === currentUid ||
@@ -509,6 +515,11 @@ function CampaignsTab({ campaigns, submissions, users, socmedRole, currentUid, g
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Staff-only state for the rollout configurator overlay and rejected modal
+  const [rolloutSelectedId, setRolloutSelectedId] = useState<string | null>(null);
+  const [rolloutMode, setRolloutMode] = useState<'create' | 'edit'>('create');
+  const [showRejectedModal, setShowRejectedModal] = useState(false);
 
   const handleDelete = async (c: Campaign) => {
     if (!window.confirm(`Delete campaign "${c.title}"? This also removes all related submissions and cannot be undone.`)) return;
@@ -535,6 +546,96 @@ function CampaignsTab({ campaigns, submissions, users, socmedRole, currentUid, g
     } else {
       setErrors({ form: result.error || 'Failed to submit' });
     }
+  };
+
+  // Staff: when a rollout configurator is open, take over the tab content.
+  if (isStaff && rolloutSelectedId) {
+    const campaign = campaigns.find(c => c.id === rolloutSelectedId);
+    if (!campaign) {
+      setRolloutSelectedId(null);
+      return null;
+    }
+    return (
+      <RolloutConfig
+        campaign={campaign}
+        users={users}
+        groups={groups}
+        getToken={getToken}
+        mode={rolloutMode}
+        onBack={() => setRolloutSelectedId(null)}
+      />
+    );
+  }
+
+  const pendingValidation = isStaff
+    ? campaigns.filter(c => c.status === 'pending' || c.status === 'manager_approved')
+    : [];
+  const validatedAwaiting = isStaff ? campaigns.filter(c => c.status === 'validated') : [];
+  const activeRollouts = isStaff ? campaigns.filter(c => c.status === 'active') : [];
+  const rejectedCampaigns = isStaff ? campaigns.filter(c => c.status === 'rejected') : [];
+
+  const renderCampaignSummary = (c: Campaign, action: ReactNode | null) => {
+    const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
+    const agents: string[] = parseJson(c.target_agents) || [];
+    const totalExpected = subtasks.length * agents.length;
+    const approvedCount = submissions
+      .filter(s => s.campaign_id === c.id)
+      .reduce((sum, s) => sum + (s.subtasks?.filter(st => st.status === 'passed').length || 0), 0);
+
+    return (
+      <Card key={c.id} className="relative">
+        {canDelete && (
+          <button
+            type="button"
+            onClick={() => handleDelete(c)}
+            disabled={deletingId === c.id}
+            title="Delete campaign"
+            aria-label="Delete campaign"
+            className="absolute top-1.5 right-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:pointer-events-none"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
+        <CardContent className="p-3 space-y-1.5">
+          <div className="flex items-center gap-2 pr-8">
+            <span className="font-semibold text-sm truncate min-w-0 flex-1">{c.title}</span>
+            <StatusBadge status={c.status} map={STATUS_CLASS} />
+          </div>
+
+          <a href={c.url} target="_blank" rel="noopener noreferrer"
+            className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
+
+          {c.description && (
+            <p className="text-xs text-muted-foreground line-clamp-1">{c.description}</p>
+          )}
+
+          <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted-foreground">
+            <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
+            <span>{getUserName(c.submitted_by, users)}</span>
+            <span className="text-muted-foreground/60">· {c.submitted_at}</span>
+            {c.validator_approved_by && (
+              <span>· validated by {getUserName(c.validator_approved_by, users)}</span>
+            )}
+            {subtasks.length > 0 && (
+              <span className="ml-auto flex items-center gap-1 text-sm leading-none">
+                {subtasks.map((st, i) => (
+                  <span key={i} title={st.type}>{SUBTASK_ICONS[st.type] || ''}</span>
+                ))}
+              </span>
+            )}
+          </div>
+
+          {c.status === 'active' && totalExpected > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{approvedCount}/{totalExpected}</span>
+              <MiniBar value={approvedCount} max={totalExpected} />
+            </div>
+          )}
+
+          {action && <div className="flex justify-end pt-1">{action}</div>}
+        </CardContent>
+      </Card>
+    );
   };
 
   return (
@@ -568,110 +669,157 @@ function CampaignsTab({ campaigns, submissions, users, socmedRole, currentUid, g
         </Card>
       )}
 
-      {visibleCampaigns.length === 0 ? (
-        <EmptyState icon="📋" text="No campaigns yet. Be the first to submit!" />
+      {isStaff ? (
+        <>
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <SectionLabel>Pending Validation · {pendingValidation.length}</SectionLabel>
+            </div>
+            {pendingValidation.length === 0 ? (
+              <EmptyState icon="✅" text="No campaigns pending validation" />
+            ) : (
+              <div className="space-y-2">
+                {pendingValidation.map(c => (
+                  <ValidateCard key={c.id} campaign={c} users={users} getToken={getToken} />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <SectionLabel>Validated · Awaiting Rollout · {validatedAwaiting.length}</SectionLabel>
+            </div>
+            {validatedAwaiting.length === 0 ? (
+              <EmptyState icon="🚀" text="No validated campaigns waiting for rollout" />
+            ) : (
+              <div className="space-y-2">
+                {validatedAwaiting.map(c => renderCampaignSummary(
+                  c,
+                  <Button size="sm" onClick={() => { setRolloutMode('create'); setRolloutSelectedId(c.id); }}>
+                    Configure Rollout
+                  </Button>,
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <SectionLabel>Active Rollouts · {activeRollouts.length}</SectionLabel>
+            </div>
+            {activeRollouts.length === 0 ? (
+              <EmptyState icon="📡" text="No active rollouts yet" />
+            ) : (
+              <div className="space-y-2">
+                {activeRollouts.map(c => renderCampaignSummary(
+                  c,
+                  <Button size="sm" variant="outline" onClick={() => { setRolloutMode('edit'); setRolloutSelectedId(c.id); }}>
+                    Edit Rollout
+                  </Button>,
+                ))}
+              </div>
+            )}
+          </section>
+
+          <button
+            type="button"
+            onClick={() => setShowRejectedModal(true)}
+            className="block w-full text-left"
+            disabled={rejectedCampaigns.length === 0}
+          >
+            <Card className={cn(rejectedCampaigns.length === 0 ? 'opacity-60' : 'hover:bg-destructive/5')}>
+              <CardContent className="p-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-destructive">Rejected</p>
+                  <p className="text-xs text-muted-foreground">
+                    {rejectedCampaigns.length === 0
+                      ? 'No rejected campaigns'
+                      : 'Click to view the rejection log'}
+                  </p>
+                </div>
+                <span className="text-2xl font-bold text-destructive tabular-nums">{rejectedCampaigns.length}</span>
+              </CardContent>
+            </Card>
+          </button>
+
+          <RejectedCampaignsModal
+            open={showRejectedModal}
+            onOpenChange={setShowRejectedModal}
+            rejected={rejectedCampaigns}
+            users={users}
+          />
+        </>
       ) : (
-        <div className="space-y-3">
-          {visibleCampaigns.map(c => {
-            const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
-            const agents: string[] = parseJson(c.target_agents) || [];
-            const totalExpected = subtasks.length * agents.length;
-            const approvedCount = submissions
-              .filter(s => s.campaign_id === c.id)
-              .reduce((sum, s) => sum + (s.subtasks?.filter(st => st.status === 'passed').length || 0), 0);
-
-            return (
-              <Card key={c.id} className="relative">
-                {canDelete && (
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(c)}
-                    disabled={deletingId === c.id}
-                    title="Delete campaign"
-                    aria-label="Delete campaign"
-                    className="absolute top-1.5 right-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:pointer-events-none"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-                <CardContent className="p-3 space-y-1.5">
-                  <div className="flex items-center gap-2 pr-8">
-                    <span className="font-semibold text-sm truncate min-w-0 flex-1">{c.title}</span>
-                    <StatusBadge status={c.status} map={STATUS_CLASS} />
-                  </div>
-
-                  <a href={c.url} target="_blank" rel="noopener noreferrer"
-                    className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
-
-                  {c.description && (
-                    <p className="text-xs text-muted-foreground line-clamp-1">{c.description}</p>
-                  )}
-
-                  <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted-foreground">
-                    <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
-                    <span>{getUserName(c.submitted_by, users)}</span>
-                    <span className="text-muted-foreground/60">· {c.submitted_at}</span>
-                    {c.validator_approved_by && (
-                      <span>· validated by {getUserName(c.validator_approved_by, users)}</span>
-                    )}
-                    {subtasks.length > 0 && (
-                      <span className="ml-auto flex items-center gap-1 text-sm leading-none">
-                        {subtasks.map((st, i) => (
-                          <span key={i} title={st.type}>{SUBTASK_ICONS[st.type] || ''}</span>
-                        ))}
-                      </span>
-                    )}
-                  </div>
-
-                  {c.status === 'rejected' && c.rejection_reason && (
-                    <p className="bg-destructive/10 border border-destructive/30 rounded px-2 py-1 text-xs text-destructive">
-                      Rejected: {c.rejection_reason}
-                    </p>
-                  )}
-
-                  {c.status === 'active' && totalExpected > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{approvedCount}/{totalExpected}</span>
-                      <MiniBar value={approvedCount} max={totalExpected} />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+        visibleCampaigns.length === 0 ? (
+          <EmptyState icon="📋" text="No campaigns yet. Be the first to submit!" />
+        ) : (
+          <div className="space-y-2">
+            {visibleCampaigns.map(c => renderCampaignSummary(c, null))}
+          </div>
+        )
       )}
     </div>
   );
 }
 
-// ============================================================
-// TAB: VALIDATE
-// ============================================================
-
-function ValidateTab({ campaigns, users, getToken }: {
-  campaigns: Campaign[]; users: UserProfile[]; getToken: () => Promise<string>;
+function RejectedCampaignsModal({ open, onOpenChange, rejected, users }: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  rejected: Campaign[];
+  users: UserProfile[];
 }) {
-  const queue = campaigns.filter(c => c.status === 'pending' || c.status === 'manager_approved');
-
   return (
-    <div className="space-y-3">
-      <SectionLabel>Validation Queue</SectionLabel>
-      <p className="text-xs text-muted-foreground">
-        Each campaign is validated once. The validator who approves it is recorded.
-      </p>
-      {queue.length === 0 ? (
-        <EmptyState icon="✅" text="No campaigns pending validation" />
-      ) : (
-        <div className="space-y-3">
-          {queue.map(c => (
-            <ValidateCard key={c.id} campaign={c} users={users} getToken={getToken} />
-          ))}
-        </div>
-      )}
-    </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Rejected Campaigns ({rejected.length})</DialogTitle>
+        </DialogHeader>
+        {rejected.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No rejected campaigns.</p>
+        ) : (
+          <ScrollArea className="max-h-[60vh]">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Submitted by</TableHead>
+                  <TableHead>Rejected by</TableHead>
+                  <TableHead>Reason</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rejected.map(c => (
+                  <TableRow key={c.id}>
+                    <TableCell className="align-top">
+                      <p className="font-medium text-sm">{c.title}</p>
+                      <a href={c.url} target="_blank" rel="noopener noreferrer"
+                        className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate max-w-[14rem]">{c.url}</a>
+                    </TableCell>
+                    <TableCell className="align-top text-xs text-muted-foreground">
+                      {getUserName(c.submitted_by, users)}
+                      <span className="block text-muted-foreground/60">{c.submitted_at}</span>
+                    </TableCell>
+                    <TableCell className="align-top text-xs text-muted-foreground">
+                      {c.rejected_by ? getUserName(c.rejected_by, users) : '—'}
+                    </TableCell>
+                    <TableCell className="align-top text-xs">
+                      {c.rejection_reason || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
+
+// ============================================================
+// VALIDATE CARD (used inside CampaignsTab pending validation section)
+// ============================================================
 
 function ValidateCard({ campaign: c, users, getToken }: {
   campaign: Campaign; users: UserProfile[]; getToken: () => Promise<string>;
@@ -729,104 +877,8 @@ function ValidateCard({ campaign: c, users, getToken }: {
 }
 
 // ============================================================
-// TAB: ROLLOUT
+// ROLLOUT CONFIG (used inside CampaignsTab when Configure/Edit is clicked)
 // ============================================================
-
-function RolloutTab({ campaigns, submissions, users, groups, socmedRole, currentUid, getToken }: {
-  campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[]; groups: SocmedGroup[];
-  socmedRole: SocmedRole; currentUid: string; getToken: () => Promise<string>;
-}) {
-  if (socmedRole === 'Agent') {
-    return <MyTasksTab campaigns={campaigns} submissions={submissions} currentUid={currentUid} getToken={getToken} />;
-  }
-  if (socmedRole === 'Checker') {
-    return <CheckQueueTab submissions={submissions} campaigns={campaigns} users={users} currentUid={currentUid} getToken={getToken} />;
-  }
-  return <ManagerRolloutView campaigns={campaigns} users={users} groups={groups} getToken={getToken} />;
-}
-
-function ManagerRolloutView({ campaigns, users, groups, getToken }: {
-  campaigns: Campaign[]; users: UserProfile[]; groups: SocmedGroup[]; getToken: () => Promise<string>;
-}) {
-  const validatedCampaigns = campaigns.filter(c => c.status === 'validated');
-  const activeCampaigns = campaigns.filter(c => c.status === 'active');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mode, setMode] = useState<'create' | 'edit'>('create');
-
-  const close = () => { setSelectedId(null); setMode('create'); };
-
-  if (selectedId) {
-    const campaign = campaigns.find(c => c.id === selectedId);
-    if (!campaign) { close(); return null; }
-    return (
-      <RolloutConfig
-        campaign={campaign}
-        users={users}
-        groups={groups}
-        getToken={getToken}
-        mode={mode}
-        onBack={close}
-      />
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <SectionLabel>Validated Campaigns Ready for Rollout</SectionLabel>
-        {validatedCampaigns.length === 0 ? (
-          <EmptyState icon="🚀" text="No validated campaigns to roll out" />
-        ) : (
-          <div className="space-y-2">
-            {validatedCampaigns.map(c => (
-              <Card key={c.id}>
-                <CardContent className="p-3 flex justify-between items-center flex-wrap gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-sm truncate">{c.title}</p>
-                    <a href={c.url} target="_blank" rel="noopener noreferrer"
-                      className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
-                  </div>
-                  <Button size="sm" onClick={() => { setMode('create'); setSelectedId(c.id); }}>Configure Rollout</Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {activeCampaigns.length > 0 && (
-        <div className="space-y-3">
-          <SectionLabel>Active Rollouts</SectionLabel>
-          <div className="space-y-2">
-            {activeCampaigns.map(c => {
-              const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
-              const agentIds: string[] = parseJson(c.target_agents) || [];
-              return (
-                <Card key={c.id}>
-                  <CardContent className="p-3 flex justify-between items-center flex-wrap gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-sm truncate">{c.title}</p>
-                      <a href={c.url} target="_blank" rel="noopener noreferrer"
-                        className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {subtasks.length} subtask{subtasks.length !== 1 ? 's' : ''} · {agentIds.length} agent{agentIds.length !== 1 ? 's' : ''}
-                        {c.deadline && ` · due ${c.deadline}`}
-                      </p>
-                    </div>
-                    <Button size="sm" variant="outline" onClick={() => { setMode('edit'); setSelectedId(c.id); }}>
-                      Edit Rollout
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 
 function RolloutConfig({ campaign, users, groups, getToken, mode = 'create', onBack }: {
   campaign: Campaign; users: UserProfile[]; groups: SocmedGroup[]; getToken: () => Promise<string>;
