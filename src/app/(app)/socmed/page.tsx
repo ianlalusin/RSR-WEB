@@ -25,6 +25,7 @@ import {
   rolloutCampaign,
   editRollout,
   deleteCampaign,
+  updateCampaignDetails,
   markSubtaskDone,
   unmarkSubtaskDone,
   submitCampaignProof,
@@ -508,18 +509,12 @@ function CampaignsTab({ campaigns, submissions, users, groups, socmedRole, curre
         c.status === 'active' ||
         c.status === 'completed'
       );
-  const [showForm, setShowForm] = useState(false);
-  const [url, setUrl] = useState('');
-  const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // Staff-only state for the rollout configurator overlay and rejected modal
   const [rolloutSelectedId, setRolloutSelectedId] = useState<string | null>(null);
   const [rolloutMode, setRolloutMode] = useState<'create' | 'edit'>('create');
   const [showRejectedModal, setShowRejectedModal] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const handleDelete = async (c: Campaign) => {
     if (!window.confirm(`Delete campaign "${c.title}"? This also removes all related submissions and cannot be undone.`)) return;
@@ -527,25 +522,7 @@ function CampaignsTab({ campaigns, submissions, users, groups, socmedRole, curre
     const token = await getToken();
     await deleteCampaign(c.id, token);
     setDeletingId(null);
-  };
-
-  const handleSubmit = async () => {
-    const errs: Record<string, string> = {};
-    if (!title.trim()) errs.title = 'Title is required';
-    if (!url.trim()) errs.url = 'URL is required';
-    else if (!url.startsWith('http')) errs.url = 'URL must start with http';
-    if (Object.keys(errs).length) { setErrors(errs); return; }
-
-    setSubmitting(true); setErrors({});
-    const token = await getToken();
-    const result = await createCampaign({ url, title, description: desc }, token);
-    setSubmitting(false);
-
-    if (result.success) {
-      setUrl(''); setTitle(''); setDesc(''); setShowForm(false);
-    } else {
-      setErrors({ form: result.error || 'Failed to submit' });
-    }
+    setDetailId(null);
   };
 
   // Staff: when a rollout configurator is open, take over the tab content.
@@ -574,7 +551,12 @@ function CampaignsTab({ campaigns, submissions, users, groups, socmedRole, curre
   const activeRollouts = isStaff ? campaigns.filter(c => c.status === 'active') : [];
   const rejectedCampaigns = isStaff ? campaigns.filter(c => c.status === 'rejected') : [];
 
-  const renderCampaignSummary = (c: Campaign, action: ReactNode | null) => {
+  const detailCampaign = detailId ? campaigns.find(c => c.id === detailId) || null : null;
+  const detailSubmission = detailCampaign
+    ? submissions.find(s => s.campaign_id === detailCampaign.id && s.agent_id === currentUid) || null
+    : null;
+
+  const renderCampaignCard = (c: Campaign) => {
     const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
     const agents: string[] = parseJson(c.target_agents) || [];
     const totalExpected = subtasks.length * agents.length;
@@ -583,58 +565,63 @@ function CampaignsTab({ campaigns, submissions, users, groups, socmedRole, curre
       .reduce((sum, s) => sum + (s.subtasks?.filter(st => st.status === 'passed').length || 0), 0);
 
     return (
-      <Card key={c.id} className="relative">
+      <div key={c.id} className="relative">
+        <button
+          type="button"
+          onClick={() => setDetailId(c.id)}
+          className="block w-full text-left"
+        >
+          <Card className="hover:bg-accent/30 transition-colors">
+            <CardContent className="p-3 space-y-1.5">
+              <div className="flex items-center gap-2 pr-8">
+                <span className="font-semibold text-sm truncate min-w-0 flex-1">{c.title}</span>
+                <StatusBadge status={c.status} map={STATUS_CLASS} />
+              </div>
+
+              <p className="block text-xs text-blue-600 dark:text-blue-400 truncate">{c.url}</p>
+
+              {c.description && (
+                <p className="text-xs text-muted-foreground line-clamp-1">{c.description}</p>
+              )}
+
+              <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted-foreground">
+                <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
+                <span>{getUserName(c.submitted_by, users)}</span>
+                <span className="text-muted-foreground/60">· {c.submitted_at}</span>
+                {c.validator_approved_by && (
+                  <span>· validated by {getUserName(c.validator_approved_by, users)}</span>
+                )}
+                {subtasks.length > 0 && (
+                  <span className="ml-auto flex items-center gap-1 text-sm leading-none">
+                    {subtasks.map((st, i) => (
+                      <span key={i} title={st.type}>{SUBTASK_ICONS[st.type] || ''}</span>
+                    ))}
+                  </span>
+                )}
+              </div>
+
+              {c.status === 'active' && totalExpected > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{approvedCount}/{totalExpected}</span>
+                  <MiniBar value={approvedCount} max={totalExpected} />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </button>
         {canDelete && (
           <button
             type="button"
-            onClick={() => handleDelete(c)}
+            onClick={(e) => { e.stopPropagation(); handleDelete(c); }}
             disabled={deletingId === c.id}
             title="Delete campaign"
             aria-label="Delete campaign"
-            className="absolute top-1.5 right-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:pointer-events-none"
+            className="absolute top-1.5 right-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:pointer-events-none z-10"
           >
             <Trash2 className="h-4 w-4" />
           </button>
         )}
-        <CardContent className="p-3 space-y-1.5">
-          <div className="flex items-center gap-2 pr-8">
-            <span className="font-semibold text-sm truncate min-w-0 flex-1">{c.title}</span>
-            <StatusBadge status={c.status} map={STATUS_CLASS} />
-          </div>
-
-          <a href={c.url} target="_blank" rel="noopener noreferrer"
-            className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
-
-          {c.description && (
-            <p className="text-xs text-muted-foreground line-clamp-1">{c.description}</p>
-          )}
-
-          <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted-foreground">
-            <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
-            <span>{getUserName(c.submitted_by, users)}</span>
-            <span className="text-muted-foreground/60">· {c.submitted_at}</span>
-            {c.validator_approved_by && (
-              <span>· validated by {getUserName(c.validator_approved_by, users)}</span>
-            )}
-            {subtasks.length > 0 && (
-              <span className="ml-auto flex items-center gap-1 text-sm leading-none">
-                {subtasks.map((st, i) => (
-                  <span key={i} title={st.type}>{SUBTASK_ICONS[st.type] || ''}</span>
-                ))}
-              </span>
-            )}
-          </div>
-
-          {c.status === 'active' && totalExpected > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{approvedCount}/{totalExpected}</span>
-              <MiniBar value={approvedCount} max={totalExpected} />
-            </div>
-          )}
-
-          {action && <div className="flex justify-end pt-1">{action}</div>}
-        </CardContent>
-      </Card>
+      </div>
     );
   };
 
@@ -642,83 +629,35 @@ function CampaignsTab({ campaigns, submissions, users, groups, socmedRole, curre
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <SectionLabel>Campaigns</SectionLabel>
-        <Button size="sm" variant={showForm ? 'outline' : 'default'} onClick={() => setShowForm(!showForm)}>
-          {showForm ? 'Cancel' : '+ Submit FB Post'}
-        </Button>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>+ New Campaign</Button>
       </div>
-
-      {showForm && (
-        <Card>
-          <CardContent className="pt-4 space-y-3">
-            <div>
-              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Campaign Title" />
-              <FieldError msg={errors.title} />
-            </div>
-            <div>
-              <Input value={url} onChange={e => setUrl(e.target.value)} placeholder="Facebook Post URL (https://...)" />
-              <FieldError msg={errors.url} />
-            </div>
-            <Textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description (optional)" rows={3} />
-            <FieldError msg={errors.form} />
-            <div className="flex justify-end">
-              <Button onClick={handleSubmit} disabled={submitting}>
-                {submitting ? 'Submitting...' : 'Submit Campaign'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {isStaff ? (
         <>
           <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <SectionLabel>Pending Validation · {pendingValidation.length}</SectionLabel>
-            </div>
+            <SectionLabel>Pending Validation · {pendingValidation.length}</SectionLabel>
             {pendingValidation.length === 0 ? (
               <EmptyState icon="✅" text="No campaigns pending validation" />
             ) : (
-              <div className="space-y-2">
-                {pendingValidation.map(c => (
-                  <ValidateCard key={c.id} campaign={c} users={users} getToken={getToken} />
-                ))}
-              </div>
+              <div className="space-y-2">{pendingValidation.map(renderCampaignCard)}</div>
             )}
           </section>
 
           <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <SectionLabel>Validated · Awaiting Rollout · {validatedAwaiting.length}</SectionLabel>
-            </div>
+            <SectionLabel>Validated · Awaiting Rollout · {validatedAwaiting.length}</SectionLabel>
             {validatedAwaiting.length === 0 ? (
               <EmptyState icon="🚀" text="No validated campaigns waiting for rollout" />
             ) : (
-              <div className="space-y-2">
-                {validatedAwaiting.map(c => renderCampaignSummary(
-                  c,
-                  <Button size="sm" onClick={() => { setRolloutMode('create'); setRolloutSelectedId(c.id); }}>
-                    Configure Rollout
-                  </Button>,
-                ))}
-              </div>
+              <div className="space-y-2">{validatedAwaiting.map(renderCampaignCard)}</div>
             )}
           </section>
 
           <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <SectionLabel>Active Rollouts · {activeRollouts.length}</SectionLabel>
-            </div>
+            <SectionLabel>Active Rollouts · {activeRollouts.length}</SectionLabel>
             {activeRollouts.length === 0 ? (
               <EmptyState icon="📡" text="No active rollouts yet" />
             ) : (
-              <div className="space-y-2">
-                {activeRollouts.map(c => renderCampaignSummary(
-                  c,
-                  <Button size="sm" variant="outline" onClick={() => { setRolloutMode('edit'); setRolloutSelectedId(c.id); }}>
-                    Edit Rollout
-                  </Button>,
-                ))}
-              </div>
+              <div className="space-y-2">{activeRollouts.map(renderCampaignCard)}</div>
             )}
           </section>
 
@@ -752,14 +691,354 @@ function CampaignsTab({ campaigns, submissions, users, groups, socmedRole, curre
         </>
       ) : (
         visibleCampaigns.length === 0 ? (
-          <EmptyState icon="📋" text="No campaigns yet. Be the first to submit!" />
+          <EmptyState icon="📋" text="No campaigns yet. Tap + New Campaign to submit one." />
         ) : (
-          <div className="space-y-2">
-            {visibleCampaigns.map(c => renderCampaignSummary(c, null))}
-          </div>
+          <div className="space-y-2">{visibleCampaigns.map(renderCampaignCard)}</div>
         )
       )}
+
+      <CreateCampaignDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        getToken={getToken}
+      />
+
+      <CampaignDetailsModal
+        campaign={detailCampaign}
+        submission={detailSubmission}
+        socmedRole={socmedRole}
+        users={users}
+        getToken={getToken}
+        canDelete={canDelete}
+        onClose={() => setDetailId(null)}
+        onDelete={handleDelete}
+        onConfigureRollout={(c) => { setDetailId(null); setRolloutMode('create'); setRolloutSelectedId(c.id); }}
+        onEditRollout={(c) => { setDetailId(null); setRolloutMode('edit'); setRolloutSelectedId(c.id); }}
+      />
     </div>
+  );
+}
+
+function CreateCampaignDialog({ open, onOpenChange, getToken }: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  getToken: () => Promise<string>;
+}) {
+  const [title, setTitle] = useState('');
+  const [url, setUrl] = useState('');
+  const [desc, setDesc] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) { setTitle(''); setUrl(''); setDesc(''); setErrors({}); }
+  }, [open]);
+
+  const handleSubmit = async () => {
+    const errs: Record<string, string> = {};
+    if (!title.trim()) errs.title = 'Title is required';
+    if (!url.trim()) errs.url = 'URL is required';
+    else if (!url.startsWith('http')) errs.url = 'URL must start with http';
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    setSubmitting(true); setErrors({});
+    const token = await getToken();
+    const result = await createCampaign({ url, title, description: desc }, token);
+    setSubmitting(false);
+    if (result.success) onOpenChange(false);
+    else setErrors({ form: result.error || 'Failed to submit' });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New Campaign</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Campaign Title" />
+            <FieldError msg={errors.title} />
+          </div>
+          <div>
+            <Input value={url} onChange={e => setUrl(e.target.value)} placeholder="Facebook Post URL (https://...)" />
+            <FieldError msg={errors.url} />
+          </div>
+          <Textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description (optional)" rows={3} />
+          <FieldError msg={errors.form} />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={submitting}>
+              {submitting ? 'Submitting...' : 'Submit Campaign'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CampaignDetailsModal({ campaign, submission, socmedRole, users, getToken, canDelete, onClose, onDelete, onConfigureRollout, onEditRollout }: {
+  campaign: Campaign | null;
+  submission: Submission | null;
+  socmedRole: SocmedRole;
+  users: UserProfile[];
+  getToken: () => Promise<string>;
+  canDelete: boolean;
+  onClose: () => void;
+  onDelete: (c: Campaign) => void;
+  onConfigureRollout: (c: Campaign) => void;
+  onEditRollout: (c: Campaign) => void;
+}) {
+  const open = !!campaign;
+  const isStaff = socmedRole === 'Admin' || socmedRole === 'Manager' || socmedRole === 'Validator';
+  const isAgent = socmedRole === 'Agent';
+
+  // Agent with an active assignment uses the focused task flow.
+  const useTaskFlow =
+    !!campaign && !!submission && isAgent &&
+    campaign.status === 'active' && Array.isArray(submission.subtasks);
+
+  if (useTaskFlow) {
+    return (
+      <TaskDetailModal
+        submission={submission}
+        campaign={campaign}
+        onClose={onClose}
+        getToken={getToken}
+      />
+    );
+  }
+
+  if (!open || !campaign) return null;
+
+  return (
+    <StaffCampaignDetail
+      campaign={campaign}
+      users={users}
+      isStaff={isStaff}
+      canDelete={canDelete}
+      onClose={onClose}
+      onDelete={onDelete}
+      onConfigureRollout={onConfigureRollout}
+      onEditRollout={onEditRollout}
+      getToken={getToken}
+    />
+  );
+}
+
+function StaffCampaignDetail({ campaign: c, users, isStaff, canDelete, onClose, onDelete, onConfigureRollout, onEditRollout, getToken }: {
+  campaign: Campaign;
+  users: UserProfile[];
+  isStaff: boolean;
+  canDelete: boolean;
+  onClose: () => void;
+  onDelete: (c: Campaign) => void;
+  onConfigureRollout: (c: Campaign) => void;
+  onEditRollout: (c: Campaign) => void;
+  getToken: () => Promise<string>;
+}) {
+  const [editTitle, setEditTitle] = useState(c.title);
+  const [editUrl, setEditUrl] = useState(c.url);
+  const [editDesc, setEditDesc] = useState(c.description || '');
+  const [validationNote, setValidationNote] = useState('');
+  const [rejectReason, setRejectReason] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+
+  // Reseed when a different campaign is opened.
+  useEffect(() => {
+    setEditTitle(c.title);
+    setEditUrl(c.url);
+    setEditDesc(c.description || '');
+    setValidationNote('');
+    setRejectReason('');
+    setError(''); setInfo('');
+  }, [c.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dirty = editTitle !== c.title || editUrl !== c.url || editDesc !== (c.description || '');
+
+  const handleSave = async () => {
+    setError(''); setInfo('');
+    setBusy('save');
+    const token = await getToken();
+    const result = await updateCampaignDetails(
+      c.id,
+      { title: editTitle, url: editUrl, description: editDesc },
+      token,
+    );
+    setBusy(null);
+    if (!result.success) setError(result.error || 'Failed to save changes.');
+    else setInfo('Saved.');
+  };
+
+  const handleValidate = async () => {
+    setError(''); setInfo('');
+    setBusy('validate');
+    const token = await getToken();
+    const result = await approveCampaign(c.id, validationNote, token);
+    setBusy(null);
+    if (!result.success) setError(result.error || 'Failed to validate.');
+    else { setInfo('Campaign validated.'); setValidationNote(''); }
+  };
+
+  const handleReject = async () => {
+    setError(''); setInfo('');
+    if (!rejectReason.trim()) { setError('Rejection reason is required.'); return; }
+    setBusy('reject');
+    const token = await getToken();
+    const result = await rejectCampaign(c.id, rejectReason, token);
+    setBusy(null);
+    if (!result.success) setError(result.error || 'Failed to reject.');
+    else { setInfo('Campaign rejected.'); setRejectReason(''); }
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="p-4 border-b">
+          <div className="flex items-start gap-2 pr-6">
+            <DialogTitle className="text-base flex-1 min-w-0 truncate">
+              {isStaff ? 'Campaign Details' : c.title}
+            </DialogTitle>
+            <StatusBadge status={c.status} map={STATUS_CLASS} />
+          </div>
+        </DialogHeader>
+
+        <ScrollArea className="flex-1 px-4 py-3">
+          <div className="space-y-3">
+            {isStaff ? (
+              <>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">Title</p>
+                  <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">Facebook Post URL</p>
+                  <Input value={editUrl} onChange={e => setEditUrl(e.target.value)} />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">Description</p>
+                  <Textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} />
+                </div>
+              </>
+            ) : (
+              <>
+                {c.description && <p className="text-sm text-muted-foreground">{c.description}</p>}
+                <a href={c.url} target="_blank" rel="noopener noreferrer"
+                  className="block text-xs text-blue-600 hover:underline dark:text-blue-400 break-all">{c.url}</a>
+              </>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild size="sm" variant="outline">
+                <a href={editUrl || c.url} target="_blank" rel="noopener noreferrer">Go to Link →</a>
+              </Button>
+              {c.deadline && (
+                <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400">
+                  Due {c.deadline}
+                </Badge>
+              )}
+            </div>
+
+            <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-1.5">
+              <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
+              <span>Submitted by {getUserName(c.submitted_by, users)}</span>
+              <span className="text-muted-foreground/60">· {c.submitted_at}</span>
+              {c.validator_approved_by && (
+                <span>· validated by {getUserName(c.validator_approved_by, users)}</span>
+              )}
+            </div>
+
+            {c.status === 'rejected' && c.rejection_reason && (
+              <div className="bg-destructive/10 border border-destructive/30 rounded px-3 py-2 text-xs text-destructive">
+                <p className="font-semibold">Rejected</p>
+                <p>{c.rejection_reason}</p>
+                {c.rejected_by && (
+                  <p className="text-muted-foreground mt-1">by {getUserName(c.rejected_by, users)}</p>
+                )}
+              </div>
+            )}
+
+            {isStaff && (c.status === 'pending' || c.status === 'manager_approved') && (
+              <div className="space-y-2 border-t pt-3">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Validation</p>
+                <Textarea
+                  value={validationNote}
+                  onChange={e => setValidationNote(e.target.value)}
+                  placeholder="Validation note (optional)"
+                  rows={2}
+                />
+                <Input
+                  value={rejectReason}
+                  onChange={e => setRejectReason(e.target.value)}
+                  placeholder="Rejection reason (required to reject)"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={handleValidate}
+                    disabled={busy === 'validate'}
+                  >
+                    {busy === 'validate' ? 'Validating...' : 'Validate'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleReject}
+                    disabled={busy === 'reject' || !rejectReason.trim()}
+                  >
+                    {busy === 'reject' ? 'Rejecting...' : 'Reject'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {isStaff && c.status === 'validated' && (
+              <div className="border-t pt-3">
+                <Button size="sm" onClick={() => onConfigureRollout(c)}>
+                  Configure Rollout →
+                </Button>
+              </div>
+            )}
+
+            {isStaff && c.status === 'active' && (
+              <div className="border-t pt-3">
+                <Button size="sm" variant="outline" onClick={() => onEditRollout(c)}>
+                  Edit Rollout →
+                </Button>
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+
+        {(error || info || (isStaff && dirty) || canDelete) && (
+          <div className="border-t p-3 space-y-2 bg-muted/20">
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            {info && !error && <p className="text-xs text-green-700 dark:text-green-400">{info}</p>}
+            <div className="flex gap-2 justify-end">
+              {canDelete && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive border-destructive/50 hover:bg-destructive/10 mr-auto"
+                  onClick={() => onDelete(c)}
+                >
+                  Delete
+                </Button>
+              )}
+              {isStaff && (
+                <Button size="sm" onClick={handleSave} disabled={!dirty || busy === 'save'}>
+                  {busy === 'save' ? 'Saving...' : 'Save Changes'}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -814,65 +1093,6 @@ function RejectedCampaignsModal({ open, onOpenChange, rejected, users }: {
         )}
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ============================================================
-// VALIDATE CARD (used inside CampaignsTab pending validation section)
-// ============================================================
-
-function ValidateCard({ campaign: c, users, getToken }: {
-  campaign: Campaign; users: UserProfile[]; getToken: () => Promise<string>;
-}) {
-  const [note, setNote] = useState('');
-  const [rejectReason, setRejectReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleApprove = async () => {
-    setBusy(true); setError('');
-    const token = await getToken();
-    const result = await approveCampaign(c.id, note, token);
-    setBusy(false);
-    if (!result.success) { setError(result.error || 'Failed to validate'); return; }
-    setNote(''); setRejectReason('');
-  };
-
-  const handleReject = async () => {
-    setBusy(true); setError('');
-    const token = await getToken();
-    const result = await rejectCampaign(c.id, rejectReason, token);
-    setBusy(false);
-    if (!result.success) { setError(result.error || 'Failed to reject'); return; }
-    setNote(''); setRejectReason('');
-  };
-
-  return (
-    <Card>
-      <CardContent className="pt-4 space-y-3">
-        <div>
-          <p className="font-semibold text-sm">{c.title}</p>
-          <a href={c.url} target="_blank" rel="noopener noreferrer"
-            className="text-xs text-blue-600 hover:underline dark:text-blue-400">{c.url}</a>
-          {c.description && <p className="text-xs text-muted-foreground mt-1">{c.description}</p>}
-        </div>
-        <div className="flex items-center gap-2">
-          <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
-          <span className="text-xs text-muted-foreground">Submitted by {getUserName(c.submitted_by, users)}</span>
-        </div>
-        <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Validation note (optional)" rows={2} />
-        <Input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Rejection reason (required to reject)" />
-        {error && <p className="text-xs text-destructive">{error}</p>}
-        <div className="flex gap-2">
-          <Button variant="default" className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={busy}>
-            {busy ? 'Processing...' : 'Validate'}
-          </Button>
-          <Button variant="destructive" onClick={handleReject} disabled={busy || !rejectReason.trim()}>
-            Reject
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

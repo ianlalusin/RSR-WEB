@@ -162,6 +162,41 @@ export async function rejectCampaign(
   }
 }
 
+export async function updateCampaignDetails(
+  campaignId: string,
+  data: { title?: string; url?: string; description?: string },
+  actorToken: ActorToken
+) {
+  try {
+    const actor = await resolveActor(actorToken);
+    if (!canValidate(actor)) {
+      return { success: false, error: 'Permission denied. Only Admin, Manager, or Validator can edit campaigns.' };
+    }
+
+    const payload: Record<string, any> = {};
+    if (data.title !== undefined) {
+      const t = data.title.trim();
+      if (!t) return { success: false, error: 'Title cannot be empty.' };
+      payload.title = t;
+    }
+    if (data.url !== undefined) {
+      const u = data.url.trim();
+      if (!u || !u.startsWith('http')) return { success: false, error: 'URL must start with http.' };
+      payload.url = u;
+    }
+    if (data.description !== undefined) {
+      payload.description = data.description.trim();
+    }
+
+    if (Object.keys(payload).length === 0) return { success: true };
+
+    await adminDb.collection('socmedCampaigns').doc(campaignId).update(payload);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
 export async function deleteCampaign(campaignId: string, actorToken: ActorToken) {
   try {
     const actor = await resolveActor(actorToken);
