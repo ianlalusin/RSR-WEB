@@ -32,6 +32,24 @@ service cloud.firestore {
       return isPlatformAdmin() || (isActiveUser() && (districtId in me().access.districtIds));
     }
 
+    // -------- SocMed role helpers --------
+    function socmedRole() {
+      return 'socmedRole' in me() ? me().socmedRole : null;
+    }
+
+    function hasSocmedRole() {
+      return isActiveUser() && socmedRole() != null;
+    }
+
+    // Admin / Manager / Validator share validation + rollout-config power
+    function isSocmedStaff() {
+      return isActiveUser() && socmedRole() in ['Admin', 'Manager', 'Validator'];
+    }
+
+    function isSocmedChecker() {
+      return isActiveUser() && socmedRole() == 'Checker';
+    }
+
     // -------- PLATFORM ADMIN: FULL BYPASS --------
     match /{docPath=**} {
       allow read, write: if isPlatformAdmin();
@@ -51,12 +69,21 @@ service cloud.firestore {
       // OIC and platform admin can read all profiles (for admin page real-time subscriptions)
       allow read: if isAdminOrOIC();
 
+      // SocMed staff (Admin/Manager/Validator) can read all profiles for the SocMed module:
+      // user lists, agent rosters, submitter names, group membership.
+      allow read: if isSocmedStaff();
+
+      // SocMed Checker can read all profiles to display agent names on submission cards.
+      allow read: if isSocmedChecker();
+
       // Self-provision on first sign-in: user creates their own doc with safe defaults only.
-      // isActive must be false and roleId must be absent (admin assigns these later).
+      // No roleId, no socmedRole, no access overrides — admin assigns these later via Admin SDK.
       allow create: if signedIn()
         && request.auth.uid == uid
         && request.resource.data.isActive == false
         && !('roleId' in request.resource.data)
+        && !('socmedRole' in request.resource.data)
+        && !('access' in request.resource.data)
         && request.resource.data.uid == uid;
 
       // Users can self-update display name and photo only
@@ -124,19 +151,35 @@ service cloud.firestore {
 
     // -------- SocMed Campaigns --------
     match /socmedCampaigns/{campaignId} {
-      allow read: if isActiveUser();
+      // SocMed staff (Admin/Manager/Validator) see every campaign, including pending and rejected.
+      allow read: if isSocmedStaff();
+      // Checker needs to see active campaigns to contextualize submissions to review.
+      allow read: if isSocmedChecker() && resource.data.status in ['active', 'completed'];
+      // Other active users (including Agents) see published states or campaigns they themselves submitted.
+      allow read: if isActiveUser() && (
+        resource.data.status in ['validated', 'active', 'completed']
+        || resource.data.submitted_by == request.auth.uid
+      );
+      // All writes via Admin SDK server actions
       allow write: if false;
     }
 
     // -------- SocMed Submissions --------
     match /socmedSubmissions/{submissionId} {
-      allow read: if isActiveUser();
+      // Staff and Checkers can read every submission for validation, checking, and reporting.
+      allow read: if isSocmedStaff() || isSocmedChecker();
+      // Agents can read only their own submissions.
+      allow read: if isActiveUser() && resource.data.agent_id == request.auth.uid;
+      // All writes via Admin SDK server actions
       allow write: if false;
     }
 
     // -------- SocMed Groups --------
     match /socmedGroups/{groupId} {
-      allow read: if isActiveUser();
+      // Anyone with a SocMed role can read groups (staff need them for rollout config;
+      // agents may want to know which group they belong to).
+      allow read: if hasSocmedRole();
+      // All writes via Admin SDK server actions
       allow write: if false;
     }
 
