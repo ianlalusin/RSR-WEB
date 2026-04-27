@@ -93,11 +93,11 @@ type TabKey = 'dashboard' | 'campaigns' | 'tasks' | 'checkqueue' | 'groups' | 't
 // ============================================================
 
 const SUBTASK_ICONS: Record<string, string> = {
-  Engage: '🔥', Comment: '💬', React: '👍',
+  Comment: '💬', React: '👍',
   Share: '🔁', Report: '🚩', Verify: '✅',
 };
 
-const SUBTASK_TYPES = ['Engage', 'Comment', 'React', 'Share', 'Report', 'Verify'];
+const SUBTASK_TYPES = ['Comment', 'React', 'Share', 'Report', 'Verify'];
 const SOCMED_ROLES: SocmedRole[] = ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'];
 
 // Status → Tailwind classes (badge-safe)
