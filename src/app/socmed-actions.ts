@@ -455,13 +455,8 @@ export async function unmarkSubtaskDone(
 ) {
   try {
     const actor = await resolveActor(actorToken);
-    // Only allow unmarking before proof has been submitted (no checked status yet)
-    const ref = adminDb.collection('socmedSubmissions').doc(submissionId);
-    const snap = await ref.get();
-    if (!snap.exists) return { success: false, error: 'Submission not found.' };
-    const data = snap.data()!;
-    if (data.submitted_at) return { success: false, error: 'Proof already submitted; subtasks are locked.' };
-
+    // Allowed only while the subtask is still 'done' — once a checker has graded it
+    // (passed/failed), the underlying setSubtaskStatus rejects the transition.
     const result = await setSubtaskStatus(submissionId, subtaskType, 'pending', null, null, actor.uid, ['done']);
     if (!result.ok) return { success: false, error: result.error };
     return { success: true };
@@ -489,16 +484,10 @@ export async function submitCampaignProof(
       if (data.agent_id !== actor.uid) {
         return { success: false, error: 'You can only submit proof for your own submission.' };
       }
-      if (data.submitted_at) {
-        return { success: false, error: 'Proof has already been submitted.' };
-      }
 
       const subtasks: SubtaskItem[] = Array.isArray(data.subtasks) ? data.subtasks : [];
       if (subtasks.length === 0) {
         return { success: false, error: 'No subtasks to submit proof for.' };
-      }
-      if (!subtasks.every(st => st.status === 'done')) {
-        return { success: false, error: 'Mark every subtask as done before submitting proof.' };
       }
 
       // Load campaign for config
@@ -520,12 +509,15 @@ export async function submitCampaignProof(
         return { success: false, error: 'Screenshot URL is required for this campaign.' };
       }
 
+      const overall = deriveOverallStatus(subtasks, true);
+
       tx.update(ref, {
         proof_urls: cleanUrls,
         proof_screenshot_url: cleanScreenshot,
         proof_note: proofNote.trim() || null,
-        submitted_at: FieldValue.serverTimestamp(),
-        overall_status: 'submitted',
+        submitted_at: data.submitted_at || FieldValue.serverTimestamp(),
+        proof_updated_at: FieldValue.serverTimestamp(),
+        overall_status: overall,
         updated_at: FieldValue.serverTimestamp(),
       });
       return { success: true };
@@ -550,12 +542,6 @@ export async function checkSubtask(
     if (newStatus === 'failed' && !failureReason.trim()) {
       return { success: false, error: 'Failure reason is required when marking a subtask failed.' };
     }
-
-    const ref = adminDb.collection('socmedSubmissions').doc(submissionId);
-    const snap = await ref.get();
-    if (!snap.exists) return { success: false, error: 'Submission not found.' };
-    const data = snap.data()!;
-    if (!data.submitted_at) return { success: false, error: 'Agent has not submitted proof yet.' };
 
     const result = await setSubtaskStatus(
       submissionId,

@@ -1106,191 +1106,257 @@ function RolloutConfig({ campaign, users, groups, getToken, mode = 'create', onB
 function MyTasksTab({ campaigns, submissions, currentUid, getToken }: {
   campaigns: Campaign[]; submissions: Submission[]; currentUid: string; getToken: () => Promise<string>;
 }) {
-  const mySubmissions = submissions.filter(s => s.agent_id === currentUid && Array.isArray(s.subtasks));
+  const activeCampaignsById = useMemo(() => {
+    const m = new Map<string, Campaign>();
+    for (const c of campaigns) if (c.status === 'active') m.set(c.id, c);
+    return m;
+  }, [campaigns]);
 
-  if (mySubmissions.length === 0) return <EmptyState icon="📝" text="No tasks assigned to you yet" />;
+  const myActive = submissions.filter(s =>
+    s.agent_id === currentUid &&
+    Array.isArray(s.subtasks) &&
+    activeCampaignsById.has(s.campaign_id)
+  );
+
+  const [openId, setOpenId] = useState<string | null>(null);
+  const openSubmission = openId ? (myActive.find(s => s.id === openId) || null) : null;
+  const openCampaign = openSubmission ? (activeCampaignsById.get(openSubmission.campaign_id) || null) : null;
+
+  if (myActive.length === 0) {
+    return <EmptyState icon="📝" text="No active tasks assigned to you" />;
+  }
 
   return (
-    <div className="space-y-4">
-      {mySubmissions.map(s => {
-        const campaign = campaigns.find(c => c.id === s.campaign_id);
-        if (!campaign) return null;
-        return <AgentSubmissionCard key={s.id} submission={s} campaign={campaign} getToken={getToken} />;
-      })}
-    </div>
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {myActive.map(s => {
+          const c = activeCampaignsById.get(s.campaign_id)!;
+          const total = s.subtasks.length;
+          const passedCount = s.subtasks.filter(st => st.status === 'passed').length;
+          const doneCount = s.subtasks.filter(st => st.status !== 'pending').length;
+          const failedCount = s.subtasks.filter(st => st.status === 'failed').length;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setOpenId(s.id)}
+              className="text-left"
+            >
+              <Card className="hover:bg-accent/30 transition-colors h-full">
+                <CardContent className="p-3 space-y-1.5">
+                  <div className="flex items-start gap-2">
+                    <p className="font-semibold text-sm truncate flex-1 min-w-0">{c.title}</p>
+                    <StatusBadge status={s.overall_status} map={SUB_STATUS_CLASS} />
+                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-1">{c.url}</p>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-muted-foreground tabular-nums">
+                      {passedCount}/{total} passed
+                    </span>
+                    {failedCount > 0 && (
+                      <span className="text-destructive tabular-nums">· {failedCount} failed</span>
+                    )}
+                    <span className="text-muted-foreground/70 tabular-nums ml-auto">
+                      {doneCount}/{total} done
+                    </span>
+                  </div>
+                  <MiniBar value={passedCount} max={total} />
+                  {c.deadline && (
+                    <p className="text-[10px] text-yellow-700 dark:text-yellow-400">Due {c.deadline}</p>
+                  )}
+                </CardContent>
+              </Card>
+            </button>
+          );
+        })}
+      </div>
+
+      <TaskDetailModal
+        submission={openSubmission}
+        campaign={openCampaign}
+        onClose={() => setOpenId(null)}
+        getToken={getToken}
+      />
+    </>
   );
 }
 
-function AgentSubmissionCard({ submission: s, campaign: c, getToken }: {
-  submission: Submission; campaign: Campaign; getToken: () => Promise<string>;
+function TaskDetailModal({ submission, campaign, onClose, getToken }: {
+  submission: Submission | null;
+  campaign: Campaign | null;
+  onClose: () => void;
+  getToken: () => Promise<string>;
 }) {
-  const requireScreenshot = c.require_screenshot !== false;
-  const allowMultipleUrls = c.allow_multiple_urls !== false;
+  const open = !!(submission && campaign);
 
-  const [urls, setUrls] = useState<string[]>(() =>
-    s.proof_urls && s.proof_urls.length > 0 ? s.proof_urls : ['']
-  );
-  const [screenshot, setScreenshot] = useState<string>(s.proof_screenshot_url || '');
-  const [note, setNote] = useState<string>(s.proof_note || '');
+  // Local proof draft — re-seeded each time the modal opens.
+  const [urls, setUrls] = useState<string[]>(['']);
+  const [screenshot, setScreenshot] = useState('');
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
 
-  const isLocked = !!s.submitted_at;
-  const allDone = s.subtasks.length > 0 && s.subtasks.every(st => st.status !== 'pending');
+  useEffect(() => {
+    if (open && submission) {
+      setUrls(submission.proof_urls && submission.proof_urls.length > 0 ? [...submission.proof_urls] : ['']);
+      setScreenshot(submission.proof_screenshot_url || '');
+      setNote(submission.proof_note || '');
+      setError(''); setInfo('');
+    }
+  }, [open, submission?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!open || !submission || !campaign) return null;
+
+  const requireScreenshot = campaign.require_screenshot !== false;
+  const allowMultipleUrls = campaign.allow_multiple_urls !== false;
 
   const handleToggleSubtask = async (st: SubtaskItem) => {
-    if (isLocked) return;
-    if (st.status !== 'pending' && st.status !== 'done') return;
-    setBusy(st.type); setError('');
+    if (st.status === 'passed' || st.status === 'failed') return;
+    setBusy(st.type); setError(''); setInfo('');
     const token = await getToken();
     const result = st.status === 'pending'
-      ? await markSubtaskDone(s.id, st.type, token)
-      : await unmarkSubtaskDone(s.id, st.type, token);
+      ? await markSubtaskDone(submission.id, st.type, token)
+      : await unmarkSubtaskDone(submission.id, st.type, token);
     setBusy(null);
     if (!result.success) setError(result.error || 'Failed');
+    else setInfo(st.status === 'pending' ? 'Sent to checker.' : 'Subtask reverted to pending.');
   };
 
-  const handleSubmitProof = async () => {
-    setError('');
+  const handleSaveProof = async () => {
+    setError(''); setInfo('');
     const cleanUrls = urls.map(u => u.trim()).filter(Boolean);
     if (cleanUrls.length === 0) { setError('At least one proof URL is required.'); return; }
     if (!allowMultipleUrls && cleanUrls.length > 1) { setError('Only one URL is allowed for this campaign.'); return; }
     if (requireScreenshot && !screenshot.trim()) { setError('Screenshot URL is required.'); return; }
 
-    setBusy('submit');
+    setBusy('save');
     const token = await getToken();
-    const result = await submitCampaignProof(s.id, cleanUrls, screenshot.trim() || null, note.trim(), token);
+    const result = await submitCampaignProof(submission.id, cleanUrls, screenshot.trim() || null, note.trim(), token);
     setBusy(null);
-    if (!result.success) setError(result.error || 'Failed to submit proof.');
+    if (!result.success) setError(result.error || 'Failed to save proof.');
+    else setInfo('Proof saved.');
   };
 
   return (
-    <Card>
-      <CardContent className="p-3 space-y-2">
-        <div className="flex justify-between items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold text-sm truncate">{c.title}</p>
-            <a href={c.url} target="_blank" rel="noopener noreferrer"
-              className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="p-4 border-b">
+          <div className="flex items-start gap-2 pr-6">
+            <DialogTitle className="text-base flex-1 min-w-0 truncate">{campaign.title}</DialogTitle>
+            <StatusBadge status={submission.overall_status} map={SUB_STATUS_CLASS} />
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <StatusBadge status={s.overall_status} map={SUB_STATUS_CLASS} />
-            {c.deadline && (
-              <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400">
-                Due {c.deadline}
-              </Badge>
-            )}
-          </div>
-        </div>
+        </DialogHeader>
 
-        <div className="space-y-1.5">
-          <SectionLabel>Subtasks</SectionLabel>
-          {s.subtasks.map(st => {
-            const checked = st.status !== 'pending';
-            const lockedThis = isLocked || st.status === 'passed' || st.status === 'failed';
-            return (
-              <div key={st.type} className="flex items-start gap-2 bg-muted rounded px-2 py-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleToggleSubtask(st)}
-                  disabled={lockedThis || busy === st.type}
-                  className={cn(
-                    'mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded border shrink-0',
-                    checked
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background border-input',
-                    lockedThis && 'opacity-60 cursor-not-allowed',
-                  )}
-                  aria-label={checked ? 'Unmark done' : 'Mark done'}
-                >
-                  {checked ? '✓' : ''}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm">
-                    <span className="mr-1">{SUBTASK_ICONS[st.type] || ''}</span>
-                    <span className="font-medium">{st.type}</span>
-                    {st.instruction && <span className="text-muted-foreground">: {st.instruction}</span>}
-                  </p>
-                  {st.status === 'failed' && st.failure_reason && (
-                    <p className="text-xs text-destructive mt-0.5">Failed: {st.failure_reason}</p>
-                  )}
-                  {st.status === 'passed' && (
-                    <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">Passed by checker</p>
-                  )}
-                </div>
-                <StatusBadge status={st.status} map={SUB_STATUS_CLASS} />
-              </div>
-            );
-          })}
-        </div>
-
-        {!isLocked && (
-          <div className="space-y-2">
-            <SectionLabel>
-              Proof {allowMultipleUrls ? '(URLs, screenshot' : '(single URL, screenshot'}
-              {requireScreenshot ? ' required)' : ' optional)'}
-            </SectionLabel>
+        <ScrollArea className="flex-1 px-4 py-3">
+          <div className="space-y-3">
             <div className="space-y-1.5">
-              {urls.map((u, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    value={u}
-                    onChange={e => setUrls(urls.map((x, idx) => idx === i ? e.target.value : x))}
-                    placeholder={i === 0 ? 'Proof URL (required)' : 'Additional URL'}
-                  />
-                  {urls.length > 1 && (
-                    <Button size="icon" variant="ghost" className="shrink-0"
-                      onClick={() => setUrls(urls.filter((_, idx) => idx !== i))}>
-                      <span aria-hidden>×</span>
-                    </Button>
-                  )}
-                </div>
-              ))}
-              {allowMultipleUrls && (
-                <Button size="sm" variant="outline" onClick={() => setUrls([...urls, ''])}>
-                  + Add URL
-                </Button>
+              {campaign.description && (
+                <p className="text-sm text-muted-foreground">{campaign.description}</p>
               )}
-            </div>
-            <Input
-              value={screenshot}
-              onChange={e => setScreenshot(e.target.value)}
-              placeholder={requireScreenshot ? 'Screenshot URL (required)' : 'Screenshot URL (optional)'}
-            />
-            <Input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optional)" />
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            <div className="flex items-center justify-between gap-2">
-              {!allDone && (
-                <p className="text-xs text-muted-foreground">Mark every subtask done before submitting proof.</p>
+              <a href={campaign.url} target="_blank" rel="noopener noreferrer"
+                className="block text-xs text-blue-600 hover:underline dark:text-blue-400 break-all">{campaign.url}</a>
+              {campaign.deadline && (
+                <p className="text-xs text-yellow-700 dark:text-yellow-400">Deadline: {campaign.deadline}</p>
               )}
-              <Button
-                size="sm"
-                onClick={handleSubmitProof}
-                disabled={!allDone || busy === 'submit'}
-                className="bg-green-600 hover:bg-green-700 ml-auto"
-              >
-                {busy === 'submit' ? 'Submitting...' : 'Submit Proof'}
+              <Button asChild size="sm" variant="outline">
+                <a href={campaign.url} target="_blank" rel="noopener noreferrer">Go to Link →</a>
               </Button>
             </div>
-          </div>
-        )}
 
-        {isLocked && (
-          <div className="space-y-1 bg-muted/50 rounded p-2">
-            <SectionLabel>Submitted Proof</SectionLabel>
-            {s.proof_urls?.map((u, i) => (
-              <a key={i} href={u} target="_blank" rel="noopener noreferrer"
-                className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{u}</a>
-            ))}
-            {s.proof_screenshot_url && (
-              <a href={s.proof_screenshot_url} target="_blank" rel="noopener noreferrer"
-                className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">📷 {s.proof_screenshot_url}</a>
-            )}
-            {s.proof_note && <p className="text-xs text-muted-foreground">Note: {s.proof_note}</p>}
+            <div>
+              <SectionLabel>Subtasks</SectionLabel>
+              <p className="text-xs text-muted-foreground mb-2">
+                Each subtask is forwarded to the checker as soon as you mark it done.
+              </p>
+              <div className="space-y-1.5">
+                {submission.subtasks.map(st => {
+                  const checked = st.status !== 'pending';
+                  const graded = st.status === 'passed' || st.status === 'failed';
+                  return (
+                    <div key={st.type} className="flex items-start gap-2 bg-muted rounded px-2 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSubtask(st)}
+                        disabled={graded || busy === st.type}
+                        className={cn(
+                          'mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded border shrink-0',
+                          checked
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-background border-input',
+                          graded && 'opacity-60 cursor-not-allowed',
+                        )}
+                        aria-label={checked ? 'Unmark done' : 'Mark done'}
+                      >
+                        {checked ? '✓' : ''}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm">
+                          <span className="mr-1">{SUBTASK_ICONS[st.type] || ''}</span>
+                          <span className="font-medium">{st.type}</span>
+                          {st.instruction && <span className="text-muted-foreground">: {st.instruction}</span>}
+                        </p>
+                        {st.status === 'failed' && st.failure_reason && (
+                          <p className="text-xs text-destructive mt-0.5">Failed: {st.failure_reason}</p>
+                        )}
+                        {st.status === 'passed' && (
+                          <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">Passed by checker</p>
+                        )}
+                      </div>
+                      <StatusBadge status={st.status} map={SUB_STATUS_CLASS} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </ScrollArea>
+
+        <div className="border-t p-4 space-y-2 bg-muted/20">
+          <SectionLabel>Proof</SectionLabel>
+          <Input
+            value={screenshot}
+            onChange={e => setScreenshot(e.target.value)}
+            placeholder={requireScreenshot ? 'Screenshot URL (required)' : 'Screenshot URL (optional)'}
+          />
+          <div className="space-y-1.5">
+            {urls.map((u, i) => (
+              <div key={i} className="flex gap-2">
+                <Input
+                  value={u}
+                  onChange={e => setUrls(urls.map((x, idx) => idx === i ? e.target.value : x))}
+                  placeholder={i === 0 ? 'Proof URL (required)' : 'Additional URL'}
+                />
+                {urls.length > 1 && (
+                  <Button size="icon" variant="ghost" className="shrink-0"
+                    onClick={() => setUrls(urls.filter((_, idx) => idx !== i))}>
+                    <span aria-hidden>×</span>
+                  </Button>
+                )}
+              </div>
+            ))}
+            {allowMultipleUrls && (
+              <Button size="sm" variant="outline" onClick={() => setUrls([...urls, ''])}>
+                + Add URL
+              </Button>
+            )}
+          </div>
+          <Input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optional)" />
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          {info && !error && <p className="text-xs text-green-700 dark:text-green-400">{info}</p>}
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              onClick={handleSaveProof}
+              disabled={busy === 'save'}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {busy === 'save' ? 'Saving...' : 'Save Proof'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
