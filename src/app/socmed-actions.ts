@@ -17,6 +17,16 @@ function generateId(): string {
   return adminDb.collection('_').doc().id;
 }
 
+function canValidate(actor: VerifiedActor): boolean {
+  const role = actor.profile?.socmedRole;
+  return actor.isPlatformAdmin || role === 'Admin' || role === 'Manager' || role === 'Validator';
+}
+
+function canManageUsers(actor: VerifiedActor): boolean {
+  const role = actor.profile?.socmedRole;
+  return actor.isPlatformAdmin || role === 'Admin' || role === 'Manager';
+}
+
 // ---- Campaign Actions ----
 
 export interface CreateCampaignInput {
@@ -59,28 +69,36 @@ export async function createCampaign(data: CreateCampaignInput, actorToken: Acto
 
 export async function approveCampaign(
   campaignId: string,
-  role: 'manager' | 'validator',
   note: string,
   actorToken: ActorToken
 ) {
   try {
     const actor = await resolveActor(actorToken);
-    const ref = adminDb.collection('socmedCampaigns').doc(campaignId);
+    if (!canValidate(actor)) {
+      return { success: false, error: 'Permission denied. Only Admin, Manager, or Validator can validate.' };
+    }
 
-    if (role === 'manager') {
-      await ref.update({
-        status: 'manager_approved',
-        manager_approved_by: actor.uid,
-        manager_note: note || null,
-      });
-    } else {
-      await ref.update({
+    const ref = adminDb.collection('socmedCampaigns').doc(campaignId);
+    const result = await adminDb.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { ok: false, error: 'Campaign not found.' };
+      const data = snap.data()!;
+      if (data.status === 'validated' || data.status === 'active' || data.status === 'completed') {
+        return { ok: false, error: 'Campaign already validated.' };
+      }
+      if (data.status === 'rejected') {
+        return { ok: false, error: 'Campaign was rejected.' };
+      }
+      tx.update(ref, {
         status: 'validated',
         validator_approved_by: actor.uid,
         validator_note: note || null,
+        validated_at: FieldValue.serverTimestamp(),
       });
-    }
+      return { ok: true };
+    });
 
+    if (!result.ok) return { success: false, error: result.error };
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -94,6 +112,9 @@ export async function rejectCampaign(
 ) {
   try {
     const actor = await resolveActor(actorToken);
+    if (!canValidate(actor)) {
+      return { success: false, error: 'Permission denied. Only Admin, Manager, or Validator can reject.' };
+    }
     const ref = adminDb.collection('socmedCampaigns').doc(campaignId);
 
     await ref.update({
@@ -101,6 +122,26 @@ export async function rejectCampaign(
       rejected_by: actor.uid,
       rejection_reason: reason,
     });
+
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function deleteCampaign(campaignId: string, actorToken: ActorToken) {
+  try {
+    const actor = await resolveActor(actorToken);
+    if (!canManageUsers(actor)) {
+      return { success: false, error: 'Permission denied. Only Admin or Manager can delete campaigns.' };
+    }
+
+    const subsSnap = await adminDb.collection('socmedSubmissions')
+      .where('campaign_id', '==', campaignId).get();
+    const batch = adminDb.batch();
+    for (const doc of subsSnap.docs) batch.delete(doc.ref);
+    batch.delete(adminDb.collection('socmedCampaigns').doc(campaignId));
+    await batch.commit();
 
     return { success: true };
   } catch (error: any) {
@@ -122,6 +163,9 @@ export async function rolloutCampaign(
 ) {
   try {
     const actor = await resolveActor(actorToken);
+    if (!canValidate(actor)) {
+      return { success: false, error: 'Permission denied. Only Admin, Manager, or Validator can roll out campaigns.' };
+    }
 
     // Check for existing submissions to make this idempotent
     const existingSnap = await adminDb.collection('socmedSubmissions')
@@ -232,8 +276,8 @@ export async function updateUserSocmedRole(
 ) {
   try {
     const actor = await resolveActor(actorToken);
-    if (!actor.isPlatformAdmin && actor.profile?.socmedRole !== 'Admin') {
-      return { success: false, error: 'Permission denied. Only SocMed Admins can update roles.' };
+    if (!canManageUsers(actor)) {
+      return { success: false, error: 'Permission denied. Only SocMed Admins or Managers can update roles.' };
     }
 
     const ref = adminDb.collection('users').doc(userId);
@@ -257,8 +301,8 @@ export async function createSocmedUser(
 ) {
   try {
     const actor = await resolveActor(actorToken);
-    if (!actor.isPlatformAdmin && actor.profile?.socmedRole !== 'Admin') {
-      return { success: false, error: 'Permission denied. Only SocMed Admins can create SocMed users.' };
+    if (!canManageUsers(actor)) {
+      return { success: false, error: 'Permission denied. Only SocMed Admins or Managers can create SocMed users.' };
     }
 
     // Create Firebase Auth user via Admin SDK
@@ -296,8 +340,8 @@ export async function removeSocmedUser(
 ) {
   try {
     const actor = await resolveActor(actorToken);
-    if (!actor.isPlatformAdmin && actor.profile?.socmedRole !== 'Admin') {
-      return { success: false, error: 'Permission denied. Only SocMed Admins can remove users.' };
+    if (!canManageUsers(actor)) {
+      return { success: false, error: 'Permission denied. Only SocMed Admins or Managers can remove users.' };
     }
 
     const ref = adminDb.collection('users').doc(userId);

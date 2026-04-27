@@ -46,3 +46,6 @@ firestore-debug.log
 # Firebase service account (DO NOT COMMIT)
 scripts/serviceAccountKey.json
 privatekey_serviceaccounts.json
+
+# Claude Code local settings
+.claude/settings.local.json

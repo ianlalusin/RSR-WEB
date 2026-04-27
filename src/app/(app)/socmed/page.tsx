@@ -21,6 +21,7 @@ import {
   approveCampaign,
   rejectCampaign,
   rolloutCampaign,
+  deleteCampaign,
   submitProof,
   checkSubmission,
   updateUserSocmedRole,
@@ -48,6 +49,7 @@ interface Campaign {
   manager_note: string | null;
   validator_approved_by: string | null;
   validator_note: string | null;
+  validated_at?: any;
   rejected_by: string | null;
   rejection_reason: string | null;
   deadline: string | null;
@@ -207,7 +209,7 @@ function getVisibleTabs(role: SocmedRole | null): { key: TabKey; label: string }
     { key: 'rollout',   label: 'Rollout',   roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
     { key: 'groups',    label: 'Groups',    roles: ['Admin', 'Manager'] },
     { key: 'team',      label: 'Team',      roles: ['Admin', 'Manager'] },
-    { key: 'users',     label: 'Users',     roles: ['Admin'] },
+    { key: 'users',     label: 'Users',     roles: ['Admin', 'Manager'] },
   ];
   return tabs.filter(t => t.roles.includes(role));
 }
@@ -334,10 +336,16 @@ export default function SocMedPage() {
             />
           )}
           {activeTab === 'campaigns' && (
-            <CampaignsTab campaigns={campaigns} submissions={submissions} users={allUsers} getToken={getToken} />
+            <CampaignsTab
+              campaigns={campaigns}
+              submissions={submissions}
+              users={allUsers}
+              socmedRole={socmedRole}
+              getToken={getToken}
+            />
           )}
           {activeTab === 'validate' && (
-            <ValidateTab campaigns={campaigns} users={allUsers} socmedRole={socmedRole} getToken={getToken} />
+            <ValidateTab campaigns={campaigns} users={allUsers} getToken={getToken} />
           )}
           {activeTab === 'rollout' && user && (
             <RolloutTab
@@ -461,15 +469,26 @@ function DashboardTab({ campaigns, submissions, users, socmedRole, currentUid }:
 // TAB: CAMPAIGNS
 // ============================================================
 
-function CampaignsTab({ campaigns, submissions, users, getToken }: {
-  campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[]; getToken: () => Promise<string>;
+function CampaignsTab({ campaigns, submissions, users, socmedRole, getToken }: {
+  campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[];
+  socmedRole: SocmedRole; getToken: () => Promise<string>;
 }) {
+  const canDelete = socmedRole === 'Admin' || socmedRole === 'Manager';
   const [showForm, setShowForm] = useState(false);
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (c: Campaign) => {
+    if (!window.confirm(`Delete campaign "${c.title}"? This also removes all related submissions and cannot be undone.`)) return;
+    setDeletingId(c.id);
+    const token = await getToken();
+    await deleteCampaign(c.id, token);
+    setDeletingId(null);
+  };
 
   const handleSubmit = async () => {
     const errs: Record<string, string> = {};
@@ -544,12 +563,28 @@ function CampaignsTab({ campaigns, submissions, users, getToken }: {
                         className="text-xs text-blue-600 hover:underline dark:text-blue-400 break-all">{c.url}</a>
                       {c.description && <p className="text-xs text-muted-foreground mt-1">{c.description}</p>}
                     </div>
+                    {canDelete && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive border-destructive/50 hover:bg-destructive/10 shrink-0"
+                        onClick={() => handleDelete(c)}
+                        disabled={deletingId === c.id}
+                      >
+                        {deletingId === c.id ? 'Deleting...' : 'Delete'}
+                      </Button>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
                     <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
                     <span className="text-xs text-muted-foreground">{getUserName(c.submitted_by, users)}</span>
                     <span className="text-xs text-muted-foreground/60">{c.submitted_at}</span>
+                    {c.validator_approved_by && (
+                      <span className="text-xs text-muted-foreground">
+                        · validated by {getUserName(c.validator_approved_by, users)}
+                      </span>
+                    )}
                   </div>
 
                   {subtasks.length > 0 && (
@@ -586,69 +621,54 @@ function CampaignsTab({ campaigns, submissions, users, getToken }: {
 // TAB: VALIDATE
 // ============================================================
 
-function ValidateTab({ campaigns, users, socmedRole, getToken }: {
-  campaigns: Campaign[]; users: UserProfile[]; socmedRole: SocmedRole; getToken: () => Promise<string>;
+function ValidateTab({ campaigns, users, getToken }: {
+  campaigns: Campaign[]; users: UserProfile[]; getToken: () => Promise<string>;
 }) {
-  const isManager = socmedRole === 'Manager' || socmedRole === 'Admin';
-  const isValidator = socmedRole === 'Validator' || socmedRole === 'Admin';
-
-  const managerQueue = campaigns.filter(c => c.status === 'pending');
-  const validatorQueue = campaigns.filter(c => c.status === 'manager_approved');
+  const queue = campaigns.filter(c => c.status === 'pending' || c.status === 'manager_approved');
 
   return (
-    <div className="space-y-6">
-      {isManager && (
+    <div className="space-y-3">
+      <SectionLabel>Validation Queue</SectionLabel>
+      <p className="text-xs text-muted-foreground">
+        Each campaign is validated once. The validator who approves it is recorded.
+      </p>
+      {queue.length === 0 ? (
+        <EmptyState icon="✅" text="No campaigns pending validation" />
+      ) : (
         <div className="space-y-3">
-          <SectionLabel>Manager Approval Queue</SectionLabel>
-          {managerQueue.length === 0 ? (
-            <EmptyState icon="✅" text="No campaigns pending manager approval" />
-          ) : (
-            <div className="space-y-3">
-              {managerQueue.map(c => (
-                <ValidateCard key={c.id} campaign={c} users={users} role="manager" getToken={getToken} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {isValidator && (
-        <div className="space-y-3">
-          <SectionLabel>Validator Approval Queue</SectionLabel>
-          {validatorQueue.length === 0 ? (
-            <EmptyState icon="✅" text="No campaigns pending validation" />
-          ) : (
-            <div className="space-y-3">
-              {validatorQueue.map(c => (
-                <ValidateCard key={c.id} campaign={c} users={users} role="validator" getToken={getToken} />
-              ))}
-            </div>
-          )}
+          {queue.map(c => (
+            <ValidateCard key={c.id} campaign={c} users={users} getToken={getToken} />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function ValidateCard({ campaign: c, users, role, getToken }: {
-  campaign: Campaign; users: UserProfile[]; role: 'manager' | 'validator'; getToken: () => Promise<string>;
+function ValidateCard({ campaign: c, users, getToken }: {
+  campaign: Campaign; users: UserProfile[]; getToken: () => Promise<string>;
 }) {
   const [note, setNote] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const handleApprove = async () => {
-    setBusy(true);
+    setBusy(true); setError('');
     const token = await getToken();
-    await approveCampaign(c.id, role, note, token);
-    setBusy(false); setNote(''); setRejectReason('');
+    const result = await approveCampaign(c.id, note, token);
+    setBusy(false);
+    if (!result.success) { setError(result.error || 'Failed to validate'); return; }
+    setNote(''); setRejectReason('');
   };
 
   const handleReject = async () => {
-    setBusy(true);
+    setBusy(true); setError('');
     const token = await getToken();
-    await rejectCampaign(c.id, rejectReason, token);
-    setBusy(false); setNote(''); setRejectReason('');
+    const result = await rejectCampaign(c.id, rejectReason, token);
+    setBusy(false);
+    if (!result.success) { setError(result.error || 'Failed to reject'); return; }
+    setNote(''); setRejectReason('');
   };
 
   return (
@@ -664,11 +684,12 @@ function ValidateCard({ campaign: c, users, role, getToken }: {
           <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
           <span className="text-xs text-muted-foreground">Submitted by {getUserName(c.submitted_by, users)}</span>
         </div>
-        <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Approval note (optional)" rows={2} />
+        <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Validation note (optional)" rows={2} />
         <Input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Rejection reason (required to reject)" />
+        {error && <p className="text-xs text-destructive">{error}</p>}
         <div className="flex gap-2">
           <Button variant="default" className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={busy}>
-            {busy ? 'Processing...' : 'Approve'}
+            {busy ? 'Processing...' : 'Validate'}
           </Button>
           <Button variant="destructive" onClick={handleReject} disabled={busy || !rejectReason.trim()}>
             Reject
@@ -692,9 +713,6 @@ function RolloutTab({ campaigns, submissions, users, groups, socmedRole, current
   }
   if (socmedRole === 'Checker') {
     return <CheckQueueTab submissions={submissions} campaigns={campaigns} users={users} currentUid={currentUid} getToken={getToken} />;
-  }
-  if (socmedRole === 'Validator') {
-    return <ValidatorRolloutView campaigns={campaigns} submissions={submissions} />;
   }
   return <ManagerRolloutView campaigns={campaigns} users={users} groups={groups} getToken={getToken} />;
 }
@@ -736,59 +754,6 @@ function ManagerRolloutView({ campaigns, users, groups, getToken }: {
   );
 }
 
-function ValidatorRolloutView({ campaigns, submissions }: {
-  campaigns: Campaign[]; submissions: Submission[];
-}) {
-  const activeCampaigns = campaigns.filter(c => c.status === 'active' || c.status === 'completed');
-
-  return (
-    <div className="space-y-3">
-      <SectionLabel>Active Rollouts</SectionLabel>
-      {activeCampaigns.length === 0 ? (
-        <EmptyState icon="🚀" text="No active rollouts yet" />
-      ) : (
-        <div className="space-y-3">
-          {activeCampaigns.map(c => {
-            const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
-            const agents: string[] = parseJson(c.target_agents) || [];
-            const totalExpected = subtasks.length * agents.length;
-            const approvedCount = submissions.filter(s => s.campaign_id === c.id && s.status === 'approved').length;
-            return (
-              <Card key={c.id}>
-                <CardContent className="pt-4 space-y-3">
-                  <div className="flex justify-between items-start flex-wrap gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm">{c.title}</span>
-                        <StatusBadge status={c.status} map={STATUS_CLASS} />
-                      </div>
-                      <a href={c.url} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:underline dark:text-blue-400 break-all">{c.url}</a>
-                    </div>
-                    {c.deadline && <Badge className="bg-yellow-500/20 text-yellow-700 border-yellow-500/40 dark:text-yellow-400">Due: {c.deadline}</Badge>}
-                  </div>
-                  {subtasks.length > 0 && (
-                    <div className="flex gap-1.5 flex-wrap">
-                      {subtasks.map((st, i) => (
-                        <Badge key={i} variant="secondary">{SUBTASK_ICONS[st.type] || ''} {st.type}</Badge>
-                      ))}
-                    </div>
-                  )}
-                  {totalExpected > 0 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Progress: {approvedCount}/{totalExpected} ({agents.length} agents)</p>
-                      <MiniBar value={approvedCount} max={totalExpected} />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function RolloutConfig({ campaign, users, groups, getToken, onBack }: {
   campaign: Campaign; users: UserProfile[]; groups: SocmedGroup[]; getToken: () => Promise<string>; onBack: () => void;
