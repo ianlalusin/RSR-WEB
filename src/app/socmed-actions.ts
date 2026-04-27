@@ -219,6 +219,96 @@ export async function rolloutCampaign(
   }
 }
 
+export async function editRollout(
+  campaignId: string,
+  subtasks: SubtaskDef[],
+  targetAgentIds: string[],
+  deadline: string,
+  actorToken: ActorToken
+) {
+  try {
+    const actor = await resolveActor(actorToken);
+    if (!canValidate(actor)) {
+      return { success: false, error: 'Permission denied. Only Admin, Manager, or Validator can edit rollouts.' };
+    }
+
+    const desiredKeys = new Set<string>();
+    for (const agentId of targetAgentIds) {
+      for (const st of subtasks) {
+        desiredKeys.add(`${agentId}__${st.type}`);
+      }
+    }
+
+    const existingSnap = await adminDb.collection('socmedSubmissions')
+      .where('campaign_id', '==', campaignId)
+      .get();
+
+    const existingByKey = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+    for (const doc of existingSnap.docs) {
+      const data = doc.data();
+      existingByKey.set(`${data.agent_id}__${data.subtask_type}`, doc);
+    }
+
+    const batch = adminDb.batch();
+
+    const campaignRef = adminDb.collection('socmedCampaigns').doc(campaignId);
+    batch.update(campaignRef, {
+      subtasks: JSON.stringify(subtasks),
+      target_agents: JSON.stringify(targetAgentIds),
+      deadline,
+    });
+
+    // Delete submissions whose (agent, subtask) combo is no longer desired
+    for (const [key, doc] of existingByKey) {
+      if (!desiredKeys.has(key)) {
+        batch.delete(doc.ref);
+      }
+    }
+
+    // Update instructions on still-existing combos when the subtask instruction has changed
+    const instructionByType = new Map(subtasks.map(s => [s.type, s.instruction]));
+    for (const [key, doc] of existingByKey) {
+      if (!desiredKeys.has(key)) continue;
+      const data = doc.data();
+      const newInstruction = instructionByType.get(data.subtask_type);
+      if (newInstruction !== undefined && newInstruction !== data.subtask_instruction) {
+        batch.update(doc.ref, { subtask_instruction: newInstruction });
+      }
+    }
+
+    // Create missing submissions for new (agent, subtask) combos
+    for (const agentId of targetAgentIds) {
+      for (const subtask of subtasks) {
+        const key = `${agentId}__${subtask.type}`;
+        if (existingByKey.has(key)) continue;
+
+        const subId = generateId();
+        const subRef = adminDb.collection('socmedSubmissions').doc(subId);
+        batch.set(subRef, {
+          id: subId,
+          campaign_id: campaignId,
+          agent_id: agentId,
+          subtask_type: subtask.type,
+          subtask_instruction: subtask.instruction,
+          status: 'pending',
+          proof_url: null,
+          proof_note: null,
+          submitted_at: null,
+          checked_by: null,
+          checker_note: null,
+          checked_at: null,
+          created_at: FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    await batch.commit();
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
 // ---- Submission Actions ----
 
 export async function submitProof(

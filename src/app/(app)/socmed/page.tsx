@@ -21,6 +21,7 @@ import {
   approveCampaign,
   rejectCampaign,
   rolloutCampaign,
+  editRollout,
   deleteCampaign,
   submitProof,
   checkSubmission,
@@ -209,7 +210,7 @@ function getVisibleTabs(role: SocmedRole | null): { key: TabKey; label: string }
     { key: 'rollout',   label: 'Rollout',   roles: ['Admin', 'Manager', 'Validator', 'Checker', 'Agent'] },
     { key: 'groups',    label: 'Groups',    roles: ['Admin', 'Manager'] },
     { key: 'team',      label: 'Team',      roles: ['Admin', 'Manager'] },
-    { key: 'users',     label: 'Users',     roles: ['Admin', 'Manager'] },
+    { key: 'users',     label: 'Users',     roles: ['Admin', 'Manager', 'Validator'] },
   ];
   return tabs.filter(t => t.roles.includes(role));
 }
@@ -366,7 +367,13 @@ export default function SocMedPage() {
             <TeamTab submissions={submissions} users={allUsers} />
           )}
           {activeTab === 'users' && (
-            <UsersTab users={allUsers} getToken={getToken} refreshUsers={fetchUsers} currentUid={user?.uid || ''} />
+            <UsersTab
+              users={allUsers}
+              getToken={getToken}
+              refreshUsers={fetchUsers}
+              currentUid={user?.uid || ''}
+              socmedRole={socmedRole}
+            />
           )}
         </>
       )}
@@ -729,33 +736,78 @@ function ManagerRolloutView({ campaigns, users, groups, getToken }: {
   campaigns: Campaign[]; users: UserProfile[]; groups: SocmedGroup[]; getToken: () => Promise<string>;
 }) {
   const validatedCampaigns = campaigns.filter(c => c.status === 'validated');
+  const activeCampaigns = campaigns.filter(c => c.status === 'active');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mode, setMode] = useState<'create' | 'edit'>('create');
+
+  const close = () => { setSelectedId(null); setMode('create'); };
 
   if (selectedId) {
     const campaign = campaigns.find(c => c.id === selectedId);
-    if (!campaign) { setSelectedId(null); return null; }
-    return <RolloutConfig campaign={campaign} users={users} groups={groups} getToken={getToken} onBack={() => setSelectedId(null)} />;
+    if (!campaign) { close(); return null; }
+    return (
+      <RolloutConfig
+        campaign={campaign}
+        users={users}
+        groups={groups}
+        getToken={getToken}
+        mode={mode}
+        onBack={close}
+      />
+    );
   }
 
   return (
-    <div className="space-y-3">
-      <SectionLabel>Validated Campaigns Ready for Rollout</SectionLabel>
-      {validatedCampaigns.length === 0 ? (
-        <EmptyState icon="🚀" text="No validated campaigns to roll out" />
-      ) : (
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <SectionLabel>Validated Campaigns Ready for Rollout</SectionLabel>
+        {validatedCampaigns.length === 0 ? (
+          <EmptyState icon="🚀" text="No validated campaigns to roll out" />
+        ) : (
+          <div className="space-y-2">
+            {validatedCampaigns.map(c => (
+              <Card key={c.id}>
+                <CardContent className="p-3 flex justify-between items-center flex-wrap gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-sm truncate">{c.title}</p>
+                    <a href={c.url} target="_blank" rel="noopener noreferrer"
+                      className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
+                  </div>
+                  <Button size="sm" onClick={() => { setMode('create'); setSelectedId(c.id); }}>Configure Rollout</Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {activeCampaigns.length > 0 && (
         <div className="space-y-3">
-          {validatedCampaigns.map(c => (
-            <Card key={c.id}>
-              <CardContent className="pt-4 flex justify-between items-center flex-wrap gap-3">
-                <div>
-                  <p className="font-semibold text-sm">{c.title}</p>
-                  <a href={c.url} target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline dark:text-blue-400">{c.url}</a>
-                </div>
-                <Button size="sm" onClick={() => setSelectedId(c.id)}>Configure Rollout</Button>
-              </CardContent>
-            </Card>
-          ))}
+          <SectionLabel>Active Rollouts</SectionLabel>
+          <div className="space-y-2">
+            {activeCampaigns.map(c => {
+              const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
+              const agentIds: string[] = parseJson(c.target_agents) || [];
+              return (
+                <Card key={c.id}>
+                  <CardContent className="p-3 flex justify-between items-center flex-wrap gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-sm truncate">{c.title}</p>
+                      <a href={c.url} target="_blank" rel="noopener noreferrer"
+                        className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {subtasks.length} subtask{subtasks.length !== 1 ? 's' : ''} · {agentIds.length} agent{agentIds.length !== 1 ? 's' : ''}
+                        {c.deadline && ` · due ${c.deadline}`}
+                      </p>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={() => { setMode('edit'); setSelectedId(c.id); }}>
+                      Edit Rollout
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -763,14 +815,27 @@ function ManagerRolloutView({ campaigns, users, groups, getToken }: {
 }
 
 
-function RolloutConfig({ campaign, users, groups, getToken, onBack }: {
-  campaign: Campaign; users: UserProfile[]; groups: SocmedGroup[]; getToken: () => Promise<string>; onBack: () => void;
+function RolloutConfig({ campaign, users, groups, getToken, mode = 'create', onBack }: {
+  campaign: Campaign; users: UserProfile[]; groups: SocmedGroup[]; getToken: () => Promise<string>;
+  mode?: 'create' | 'edit'; onBack: () => void;
 }) {
-  const [subtasks, setSubtasks] = useState<SubtaskDef[]>([]);
+  const isEdit = mode === 'edit';
+  const initialSubtasks = useMemo<SubtaskDef[]>(
+    () => isEdit ? (parseJson<SubtaskDef[]>(campaign.subtasks) || []) : [],
+    [isEdit, campaign.subtasks]
+  );
+  const initialAgents = useMemo<string[]>(
+    () => isEdit ? (parseJson<string[]>(campaign.target_agents) || []) : [],
+    [isEdit, campaign.target_agents]
+  );
+
+  const [subtasks, setSubtasks] = useState<SubtaskDef[]>(initialSubtasks);
   const [stType, setStType] = useState(SUBTASK_TYPES[0]);
   const [stInstruction, setStInstruction] = useState('');
-  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
-  const [deadline, setDeadline] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set(initialAgents));
+  const [deadline, setDeadline] = useState(
+    isEdit && campaign.deadline ? campaign.deadline : new Date().toISOString().split('T')[0]
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -801,10 +866,12 @@ function RolloutConfig({ campaign, users, groups, getToken, onBack }: {
   const handleRollout = async () => {
     setBusy(true); setError('');
     const token = await getToken();
-    const result = await rolloutCampaign(campaign.id, subtasks, Array.from(selectedAgents), deadline, token);
+    const result = isEdit
+      ? await editRollout(campaign.id, subtasks, Array.from(selectedAgents), deadline, token)
+      : await rolloutCampaign(campaign.id, subtasks, Array.from(selectedAgents), deadline, token);
     setBusy(false);
     if (result.success) onBack();
-    else setError(result.error || 'Rollout failed');
+    else setError(result.error || (isEdit ? 'Save failed' : 'Rollout failed'));
   };
 
   return (
@@ -920,7 +987,11 @@ function RolloutConfig({ campaign, users, groups, getToken, onBack }: {
           disabled={subtasks.length === 0 || (agents.length > 0 && selectedAgents.size === 0) || busy}
           className="bg-green-600 hover:bg-green-700"
         >
-          {busy ? 'Rolling out...' : `Rollout (${subtasks.length} subtasks × ${selectedAgents.size} agents)`}
+          {busy
+            ? (isEdit ? 'Saving...' : 'Rolling out...')
+            : isEdit
+              ? `Save (${subtasks.length} subtasks × ${selectedAgents.size} agents)`
+              : `Rollout (${subtasks.length} subtasks × ${selectedAgents.size} agents)`}
         </Button>
       </div>
     </div>
@@ -1412,9 +1483,11 @@ function GroupsTab({ groups, users, getToken }: {
 // TAB: USERS (Admin)
 // ============================================================
 
-function UsersTab({ users, getToken, refreshUsers, currentUid }: {
-  users: UserProfile[]; getToken: () => Promise<string>; refreshUsers: () => Promise<void>; currentUid: string;
+function UsersTab({ users, getToken, refreshUsers, currentUid, socmedRole }: {
+  users: UserProfile[]; getToken: () => Promise<string>; refreshUsers: () => Promise<void>;
+  currentUid: string; socmedRole: SocmedRole;
 }) {
+  const canEdit = socmedRole === 'Admin' || socmedRole === 'Manager';
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -1460,12 +1533,14 @@ function UsersTab({ users, getToken, refreshUsers, currentUid }: {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <SectionLabel>SocMed Users</SectionLabel>
-        <Button size="sm" variant={showForm ? 'outline' : 'default'} onClick={() => setShowForm(!showForm)}>
-          {showForm ? 'Cancel' : '+ Add User'}
-        </Button>
+        {canEdit && (
+          <Button size="sm" variant={showForm ? 'outline' : 'default'} onClick={() => setShowForm(!showForm)}>
+            {showForm ? 'Cancel' : '+ Add User'}
+          </Button>
+        )}
       </div>
 
-      {showForm && (
+      {canEdit && showForm && (
         <Card>
           <CardContent className="pt-4 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1511,20 +1586,22 @@ function UsersTab({ users, getToken, refreshUsers, currentUid }: {
                   {u.socmedRole && <Badge className="text-xs">{u.socmedRole}</Badge>}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <AppSelect
-                    value={u.socmedRole || ''}
-                    onChange={v => handleRoleChange(u.uid, v)}
-                    options={[{ value: '', label: 'No SocMed role' }, ...SOCMED_ROLES.map(r => ({ value: r, label: r }))]}
-                    className="w-44"
-                  />
-                  {u.socmedRole && !isPrimary && u.uid !== currentUid && (
-                    <Button size="sm" variant="outline" className="text-destructive border-destructive/50 hover:bg-destructive/10"
-                      onClick={() => handleRemove(u.uid)}>
-                      Remove
-                    </Button>
-                  )}
-                </div>
+                {canEdit && (
+                  <div className="flex items-center gap-2">
+                    <AppSelect
+                      value={u.socmedRole || ''}
+                      onChange={v => handleRoleChange(u.uid, v)}
+                      options={[{ value: '', label: 'No SocMed role' }, ...SOCMED_ROLES.map(r => ({ value: r, label: r }))]}
+                      className="w-44"
+                    />
+                    {u.socmedRole && !isPrimary && u.uid !== currentUid && (
+                      <Button size="sm" variant="outline" className="text-destructive border-destructive/50 hover:bg-destructive/10"
+                        onClick={() => handleRemove(u.uid)}>
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           );
