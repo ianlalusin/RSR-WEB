@@ -2,6 +2,7 @@
 import { initializeApp, getApps, getApp, FirebaseOptions } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 const firebaseConfig: FirebaseOptions = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -15,6 +16,7 @@ const firebaseConfig: FirebaseOptions = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 const googleProvider = new GoogleAuthProvider();
 
 if (typeof window !== 'undefined') {
@@ -27,4 +29,4 @@ if (typeof window !== 'undefined') {
     });
 }
 
-export { app, auth, db, googleProvider };
+export { app, auth, db, storage, googleProvider };

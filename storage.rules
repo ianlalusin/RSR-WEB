@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // SocMed proof screenshots — authenticated users can upload images up to ~2MB
+    // (client compresses to ≤1MB; 2MB rule has headroom for metadata + base64 padding).
+    match /socmedProofs/{path=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Default deny everything else
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

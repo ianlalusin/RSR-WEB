@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage, isPlatformAdmin } from '@/lib/access';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
 import { collection, query, getDocs, onSnapshot, orderBy } from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import type { UserProfile, SocmedRole, SocmedGroup } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Trash2 } from 'lucide-react';
@@ -207,6 +208,51 @@ function getUserInitials(uid: string, users: UserProfile[]): string {
 function parseJson<T>(s: string | null): T | null {
   if (!s) return null;
   try { return JSON.parse(s); } catch { return null; }
+}
+
+const MAX_PROOF_BYTES = 1024 * 1024; // 1 MB
+
+async function compressImageToBlob(file: File, maxBytes = MAX_PROOF_BYTES): Promise<Blob> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Only image files can be uploaded as a screenshot.');
+  }
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as string);
+    r.onerror = () => reject(r.error || new Error('Failed to read file.'));
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error('Could not decode image.'));
+    i.src = dataUrl;
+  });
+
+  let scale = 1;
+  let quality = 0.9;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas not supported.');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob: Blob | null = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
+    if (!blob) throw new Error('Could not encode image.');
+    if (blob.size <= maxBytes) return blob;
+    if (quality > 0.45) quality -= 0.15;
+    else { scale *= 0.85; quality = 0.85; }
+  }
+  throw new Error('Could not compress image below 1 MB. Try a smaller picture.');
+}
+
+async function uploadProofScreenshot(submissionId: string, file: File): Promise<string> {
+  const blob = await compressImageToBlob(file);
+  const path = `socmedProofs/${submissionId}/${Date.now()}.jpg`;
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
+  return getDownloadURL(ref);
 }
 
 function getSocmedRole(profile: UserProfile | null, isPlatformAdminClaim: boolean): SocmedRole | null {
@@ -1416,6 +1462,7 @@ function TaskDetailModal({ submission, campaign, onClose, getToken }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open && submission) {
@@ -1425,6 +1472,23 @@ function TaskDetailModal({ submission, campaign, onClose, getToken }: {
       setError(''); setInfo('');
     }
   }, [open, submission?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleScreenshotPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !submission) return;
+    setError(''); setInfo('');
+    setBusy('upload');
+    try {
+      const url = await uploadProofScreenshot(submission.id, file);
+      setScreenshot(url);
+      setInfo('Screenshot uploaded — remember to click Save Proof.');
+    } catch (err: any) {
+      setError(err?.message || 'Upload failed.');
+    } finally {
+      setBusy(null);
+    }
+  };
 
   if (!open || !submission || !campaign) return null;
 
@@ -1534,11 +1598,42 @@ function TaskDetailModal({ submission, campaign, onClose, getToken }: {
 
         <div className="border-t p-4 space-y-2 bg-muted/20">
           <SectionLabel>Proof</SectionLabel>
-          <Input
-            value={screenshot}
-            onChange={e => setScreenshot(e.target.value)}
-            placeholder={requireScreenshot ? 'Screenshot URL (required)' : 'Screenshot URL (optional)'}
-          />
+          <div className="space-y-1.5">
+            <div className="flex gap-2 items-start">
+              <Input
+                value={screenshot}
+                onChange={e => setScreenshot(e.target.value)}
+                placeholder={requireScreenshot ? 'Screenshot (upload or paste URL)' : 'Screenshot URL (optional)'}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleScreenshotPick}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy === 'upload'}
+              >
+                {busy === 'upload' ? 'Uploading...' : 'Upload'}
+              </Button>
+            </div>
+            {screenshot && /^https?:\/\//i.test(screenshot) && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={screenshot}
+                alt="Screenshot preview"
+                className="max-h-32 rounded border bg-background object-contain"
+              />
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              Images are auto-compressed to ≤1 MB before upload.
+            </p>
+          </div>
           <div className="space-y-1.5">
             {urls.map((u, i) => (
               <div key={i} className="flex gap-2">
