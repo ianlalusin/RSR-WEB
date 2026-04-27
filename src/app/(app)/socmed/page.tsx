@@ -7,7 +7,7 @@ import { db } from '@/lib/firebase';
 import { collection, query, getDocs, onSnapshot, orderBy } from 'firebase/firestore';
 import type { UserProfile, SocmedRole, SocmedGroup } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -341,6 +341,7 @@ export default function SocMedPage() {
               submissions={submissions}
               users={allUsers}
               socmedRole={socmedRole}
+              currentUid={user?.uid || ''}
               getToken={getToken}
             />
           )}
@@ -469,11 +470,20 @@ function DashboardTab({ campaigns, submissions, users, socmedRole, currentUid }:
 // TAB: CAMPAIGNS
 // ============================================================
 
-function CampaignsTab({ campaigns, submissions, users, socmedRole, getToken }: {
+function CampaignsTab({ campaigns, submissions, users, socmedRole, currentUid, getToken }: {
   campaigns: Campaign[]; submissions: Submission[]; users: UserProfile[];
-  socmedRole: SocmedRole; getToken: () => Promise<string>;
+  socmedRole: SocmedRole; currentUid: string; getToken: () => Promise<string>;
 }) {
   const canDelete = socmedRole === 'Admin' || socmedRole === 'Manager';
+  const canSeeUnverified = socmedRole === 'Admin' || socmedRole === 'Manager' || socmedRole === 'Validator';
+  const visibleCampaigns = canSeeUnverified
+    ? campaigns
+    : campaigns.filter(c =>
+        c.submitted_by === currentUid ||
+        c.status === 'validated' ||
+        c.status === 'active' ||
+        c.status === 'completed'
+      );
   const [showForm, setShowForm] = useState(false);
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
@@ -540,70 +550,68 @@ function CampaignsTab({ campaigns, submissions, users, socmedRole, getToken }: {
         </Card>
       )}
 
-      {campaigns.length === 0 ? (
+      {visibleCampaigns.length === 0 ? (
         <EmptyState icon="📋" text="No campaigns yet. Be the first to submit!" />
       ) : (
         <div className="space-y-3">
-          {campaigns.map(c => {
+          {visibleCampaigns.map(c => {
             const subtasks: SubtaskDef[] = parseJson(c.subtasks) || [];
             const agents: string[] = parseJson(c.target_agents) || [];
             const totalExpected = subtasks.length * agents.length;
             const approvedCount = submissions.filter(s => s.campaign_id === c.id && s.status === 'approved').length;
 
             return (
-              <Card key={c.id}>
-                <CardContent className="pt-4 space-y-3">
-                  <div className="flex justify-between items-start flex-wrap gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm">{c.title}</span>
-                        <StatusBadge status={c.status} map={STATUS_CLASS} />
-                      </div>
-                      <a href={c.url} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:underline dark:text-blue-400 break-all">{c.url}</a>
-                      {c.description && <p className="text-xs text-muted-foreground mt-1">{c.description}</p>}
-                    </div>
-                    {canDelete && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-destructive border-destructive/50 hover:bg-destructive/10 shrink-0"
-                        onClick={() => handleDelete(c)}
-                        disabled={deletingId === c.id}
-                      >
-                        {deletingId === c.id ? 'Deleting...' : 'Delete'}
-                      </Button>
-                    )}
+              <Card key={c.id} className="relative">
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(c)}
+                    disabled={deletingId === c.id}
+                    title="Delete campaign"
+                    aria-label="Delete campaign"
+                    className="absolute top-1.5 right-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+                <CardContent className="p-3 space-y-1.5">
+                  <div className="flex items-center gap-2 pr-8">
+                    <span className="font-semibold text-sm truncate min-w-0 flex-1">{c.title}</span>
+                    <StatusBadge status={c.status} map={STATUS_CLASS} />
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <a href={c.url} target="_blank" rel="noopener noreferrer"
+                    className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate">{c.url}</a>
+
+                  {c.description && (
+                    <p className="text-xs text-muted-foreground line-clamp-1">{c.description}</p>
+                  )}
+
+                  <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted-foreground">
                     <UserAvatar name={getUserName(c.submitted_by, users)} size="sm" />
-                    <span className="text-xs text-muted-foreground">{getUserName(c.submitted_by, users)}</span>
-                    <span className="text-xs text-muted-foreground/60">{c.submitted_at}</span>
+                    <span>{getUserName(c.submitted_by, users)}</span>
+                    <span className="text-muted-foreground/60">· {c.submitted_at}</span>
                     {c.validator_approved_by && (
-                      <span className="text-xs text-muted-foreground">
-                        · validated by {getUserName(c.validator_approved_by, users)}
+                      <span>· validated by {getUserName(c.validator_approved_by, users)}</span>
+                    )}
+                    {subtasks.length > 0 && (
+                      <span className="ml-auto flex items-center gap-1 text-sm leading-none">
+                        {subtasks.map((st, i) => (
+                          <span key={i} title={st.type}>{SUBTASK_ICONS[st.type] || ''}</span>
+                        ))}
                       </span>
                     )}
                   </div>
 
-                  {subtasks.length > 0 && (
-                    <div className="flex gap-1.5 flex-wrap">
-                      {subtasks.map((st, i) => (
-                        <Badge key={i} variant="secondary">{SUBTASK_ICONS[st.type] || ''} {st.type}</Badge>
-                      ))}
-                    </div>
-                  )}
-
                   {c.status === 'rejected' && c.rejection_reason && (
-                    <div className="bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 text-xs text-destructive">
+                    <p className="bg-destructive/10 border border-destructive/30 rounded px-2 py-1 text-xs text-destructive">
                       Rejected: {c.rejection_reason}
-                    </div>
+                    </p>
                   )}
 
                   {c.status === 'active' && totalExpected > 0 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Progress: {approvedCount}/{totalExpected}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{approvedCount}/{totalExpected}</span>
                       <MiniBar value={approvedCount} max={totalExpected} />
                     </div>
                   )}
