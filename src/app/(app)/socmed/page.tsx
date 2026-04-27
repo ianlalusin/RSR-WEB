@@ -269,7 +269,7 @@ function getVisibleTabs(role: SocmedRole | null): { key: TabKey; label: string }
     { key: 'tasks',      label: 'Tasks',       roles: ['Agent'] },
     { key: 'checkqueue', label: 'Check Queue', roles: ['Checker'] },
     { key: 'groups',     label: 'Groups',      roles: ['Admin', 'Manager'] },
-    { key: 'team',       label: 'Team',        roles: ['Admin', 'Manager'] },
+    { key: 'team',       label: 'Team',        roles: ['Admin', 'Manager', 'Checker'] },
     { key: 'users',      label: 'Users',       roles: ['Admin', 'Manager', 'Validator'] },
   ];
   return tabs.filter(t => t.roles.includes(role));
@@ -428,7 +428,12 @@ export default function SocMedPage() {
             <GroupsTab groups={groups} users={allUsers} getToken={getToken} />
           )}
           {activeTab === 'team' && (
-            <TeamTab submissions={submissions} users={allUsers} />
+            <TeamTab
+              submissions={submissions}
+              users={allUsers}
+              campaigns={campaigns}
+              groups={groups}
+            />
           )}
           {activeTab === 'users' && (
             <UsersTab
@@ -1803,10 +1808,18 @@ function CheckCard({ submission: s, campaign: c, users, getToken }: {
 // TAB: TEAM
 // ============================================================
 
-function TeamTab({ submissions, users }: { submissions: Submission[]; users: UserProfile[] }) {
-  const agents = users.filter(u => u.socmedRole === 'Agent');
+interface AgentStats {
+  user: UserProfile;
+  passed: number; failed: number; awaitingReview: number; doneAwaitingProof: number; pending: number;
+  total: number; rate: number;
+}
 
-  const agentStats = useMemo(() => {
+function TeamTab({ submissions, users, campaigns, groups }: {
+  submissions: Submission[]; users: UserProfile[]; campaigns: Campaign[]; groups: SocmedGroup[];
+}) {
+  const agents = useMemo(() => users.filter(u => u.socmedRole === 'Agent'), [users]);
+
+  const agentStats = useMemo<AgentStats[]>(() => {
     return agents.map(a => {
       const subs = submissions.filter(s => s.agent_id === a.uid && Array.isArray(s.subtasks));
       let passed = 0, failed = 0, awaitingReview = 0, doneAwaitingProof = 0, pending = 0, total = 0;
@@ -1825,6 +1838,50 @@ function TeamTab({ submissions, users }: { submissions: Submission[]; users: Use
     });
   }, [agents, submissions]);
 
+  const statsByUid = useMemo(() => {
+    const m = new Map<string, AgentStats>();
+    for (const s of agentStats) m.set(s.user.uid, s);
+    return m;
+  }, [agentStats]);
+
+  const [search, setSearch] = useState('');
+  const [view, setView] = useState<'all' | 'groups'>('all');
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+  const matches = useCallback((a: UserProfile) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (a.displayName || '').toLowerCase().includes(q)
+      || (a.email || '').toLowerCase().includes(q);
+  }, [search]);
+
+  const filteredStats = useMemo(
+    () => agentStats.filter(s => matches(s.user)),
+    [agentStats, matches],
+  );
+
+  // Build grouped view: a section per group, plus an "Ungrouped" bucket for agents
+  // who don't belong to any group. Agents that belong to multiple groups appear in each.
+  const groupedView = useMemo(() => {
+    const inAnyGroup = new Set<string>();
+    const sections: { id: string; name: string; description?: string; members: AgentStats[] }[] = [];
+    for (const g of groups) {
+      const members = g.agentIds
+        .map(uid => statsByUid.get(uid))
+        .filter((s): s is AgentStats => !!s)
+        .filter(s => matches(s.user));
+      for (const uid of g.agentIds) inAnyGroup.add(uid);
+      sections.push({ id: g.id, name: g.name, description: g.description, members });
+    }
+    const ungrouped = agentStats.filter(s => !inAnyGroup.has(s.user.uid) && matches(s.user));
+    if (ungrouped.length > 0 || sections.length === 0) {
+      sections.push({ id: '__ungrouped', name: 'Ungrouped', members: ungrouped });
+    }
+    return sections;
+  }, [groups, agentStats, statsByUid, matches]);
+
+  const selectedAgent = selectedAgentId ? agents.find(a => a.uid === selectedAgentId) || null : null;
+
   const exportCsv = () => {
     const header = 'Name,Role,Total Subtasks,Passed,Failed,Awaiting Review,Done Awaiting Proof,Pending,Pass Rate %';
     const rows = agentStats.map(a =>
@@ -1840,48 +1897,248 @@ function TeamTab({ submissions, users }: { submissions: Submission[]; users: Use
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap items-center gap-2">
         <SectionLabel>Agent Performance</SectionLabel>
-        <Button size="sm" variant="outline" onClick={exportCsv}>Export CSV</Button>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search team members..."
+            className="h-8 w-48"
+          />
+          <div className="inline-flex rounded-md border bg-muted p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setView('all')}
+              className={cn(
+                'px-2 py-1 rounded-sm',
+                view === 'all' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground',
+              )}
+            >
+              All Members
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('groups')}
+              className={cn(
+                'px-2 py-1 rounded-sm',
+                view === 'groups' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground',
+              )}
+            >
+              By Group
+            </button>
+          </div>
+          <Button size="sm" variant="outline" onClick={exportCsv}>Export CSV</Button>
+        </div>
       </div>
 
       {agents.length === 0 ? (
         <EmptyState icon="👥" text="No agents found" />
+      ) : view === 'all' ? (
+        filteredStats.length === 0 ? (
+          <EmptyState icon="🔍" text={`No team members match "${search}"`} />
+        ) : (
+          <AgentStatsGrid stats={filteredStats} onSelect={setSelectedAgentId} />
+        )
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {agentStats.map(a => (
-            <Card key={a.user.uid}>
-              <CardContent className="pt-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  <UserAvatar name={a.user.displayName} size="lg" />
-                  <div>
-                    <p className="font-semibold text-sm">{a.user.displayName || a.user.email}</p>
-                    <p className="text-xs text-muted-foreground">Total subtasks: {a.total} · Pass rate: {a.rate}%</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-5 gap-1.5">
-                  {[
-                    { label: 'Passed',  val: a.passed,            cls: 'text-green-600 dark:text-green-400' },
-                    { label: 'Failed',  val: a.failed,            cls: 'text-destructive' },
-                    { label: 'Review',  val: a.awaitingReview,    cls: 'text-yellow-600 dark:text-yellow-400' },
-                    { label: 'Done',    val: a.doneAwaitingProof, cls: 'text-blue-600 dark:text-blue-400' },
-                    { label: 'Pending', val: a.pending,           cls: 'text-muted-foreground' },
-                  ].map(st => (
-                    <div key={st.label} className="bg-muted rounded-lg px-1 py-2 text-center">
-                      <p className={cn('text-base font-bold', st.cls)}>{st.val}</p>
-                      <p className="text-[9px] uppercase text-muted-foreground">{st.label}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <MiniBar value={a.rate} max={100} />
-              </CardContent>
-            </Card>
+        <div className="space-y-5">
+          {groupedView.map(section => (
+            <div key={section.id} className="space-y-2">
+              <div className="flex items-center gap-2">
+                <SectionLabel>{section.name} · {section.members.length}</SectionLabel>
+                {section.description && (
+                  <span className="text-xs text-muted-foreground">— {section.description}</span>
+                )}
+              </div>
+              {section.members.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic px-1">No matching members.</p>
+              ) : (
+                <AgentStatsGrid stats={section.members} onSelect={setSelectedAgentId} />
+              )}
+            </div>
           ))}
         </div>
       )}
+
+      <TeamMemberDetailModal
+        agent={selectedAgent}
+        submissions={submissions}
+        campaigns={campaigns}
+        onClose={() => setSelectedAgentId(null)}
+      />
     </div>
+  );
+}
+
+function AgentStatsGrid({ stats, onSelect }: {
+  stats: AgentStats[]; onSelect: (uid: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {stats.map(a => (
+        <button
+          key={a.user.uid}
+          type="button"
+          onClick={() => onSelect(a.user.uid)}
+          className="text-left"
+        >
+          <Card className="hover:bg-accent/30 transition-colors h-full">
+            <CardContent className="pt-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <UserAvatar name={a.user.displayName} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-sm truncate">{a.user.displayName || a.user.email}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    Total subtasks: {a.total} · Pass rate: {a.rate}%
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-1.5">
+                {[
+                  { label: 'Passed',  val: a.passed,            cls: 'text-green-600 dark:text-green-400' },
+                  { label: 'Failed',  val: a.failed,            cls: 'text-destructive' },
+                  { label: 'Review',  val: a.awaitingReview,    cls: 'text-yellow-600 dark:text-yellow-400' },
+                  { label: 'Done',    val: a.doneAwaitingProof, cls: 'text-blue-600 dark:text-blue-400' },
+                  { label: 'Pending', val: a.pending,           cls: 'text-muted-foreground' },
+                ].map(st => (
+                  <div key={st.label} className="bg-muted rounded-lg px-1 py-2 text-center">
+                    <p className={cn('text-base font-bold', st.cls)}>{st.val}</p>
+                    <p className="text-[9px] uppercase text-muted-foreground">{st.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              <MiniBar value={a.rate} max={100} />
+            </CardContent>
+          </Card>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const MEMBER_STATUS_OPTIONS = [
+  { value: '',            label: 'All statuses' },
+  { value: 'pending',     label: 'Pending' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'submitted',   label: 'Submitted' },
+  { value: 'passed',      label: 'Passed' },
+  { value: 'failed',      label: 'Failed' },
+];
+
+function TeamMemberDetailModal({ agent, submissions, campaigns, onClose }: {
+  agent: UserProfile | null;
+  submissions: Submission[];
+  campaigns: Campaign[];
+  onClose: () => void;
+}) {
+  const [statusFilter, setStatusFilter] = useState('');
+
+  useEffect(() => { setStatusFilter(''); }, [agent?.uid]);
+
+  if (!agent) return null;
+
+  const mySubs = submissions.filter(s => s.agent_id === agent.uid && Array.isArray(s.subtasks));
+  const filtered = statusFilter ? mySubs.filter(s => s.overall_status === statusFilter) : mySubs;
+  const sorted = [...filtered].sort((a, b) => {
+    const at = (a as any).updated_at?.seconds ?? (a as any).created_at?.seconds ?? a.submitted_at?.seconds ?? 0;
+    const bt = (b as any).updated_at?.seconds ?? (b as any).created_at?.seconds ?? b.submitted_at?.seconds ?? 0;
+    return bt - at;
+  });
+
+  const fmt = (ts: any) => {
+    if (!ts) return '—';
+    const d = ts.toDate ? ts.toDate() : (ts.seconds ? new Date(ts.seconds * 1000) : null);
+    return d ? d.toLocaleString() : '—';
+  };
+
+  return (
+    <Dialog open onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="p-4 border-b">
+          <div className="flex items-center gap-3">
+            <UserAvatar name={agent.displayName} size="lg" />
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-base truncate">{agent.displayName || 'Unnamed'}</DialogTitle>
+              <p className="text-xs text-muted-foreground truncate">{agent.email}</p>
+            </div>
+            {agent.socmedRole && <Badge>{agent.socmedRole}</Badge>}
+          </div>
+        </DialogHeader>
+
+        <div className="px-4 pt-3 pb-2 flex flex-wrap items-center gap-2 border-b">
+          <SectionLabel>Tasks · {sorted.length} of {mySubs.length}</SectionLabel>
+          <div className="ml-auto">
+            <AppSelect
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={MEMBER_STATUS_OPTIONS}
+              className="h-8 w-44"
+            />
+          </div>
+        </div>
+
+        <ScrollArea className="flex-1">
+          {sorted.length === 0 ? (
+            <div className="p-6">
+              <EmptyState
+                icon="📋"
+                text={mySubs.length === 0 ? 'No tasks assigned yet' : `No tasks match "${statusFilter}"`}
+              />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader className="sticky top-0 bg-background z-10">
+                <TableRow>
+                  <TableHead>Campaign</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-xs">Subtasks</TableHead>
+                  <TableHead className="text-xs">Deadline</TableHead>
+                  <TableHead className="text-xs">Last activity</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sorted.map(s => {
+                  const c = campaigns.find(c => c.id === s.campaign_id);
+                  const total = s.subtasks.length;
+                  const passed = s.subtasks.filter(st => st.status === 'passed').length;
+                  const done = s.subtasks.filter(st => st.status !== 'pending').length;
+                  const failed = s.subtasks.filter(st => st.status === 'failed').length;
+                  const lastTs = (s as any).updated_at || (s as any).created_at || s.submitted_at;
+                  return (
+                    <TableRow key={s.id}>
+                      <TableCell className="align-top">
+                        <p className="font-medium text-sm truncate max-w-[18rem]">
+                          {c?.title || s.campaign_id}
+                        </p>
+                        {c?.url && (
+                          <a href={c.url} target="_blank" rel="noopener noreferrer"
+                            className="block text-xs text-blue-600 hover:underline dark:text-blue-400 truncate max-w-[18rem]">{c.url}</a>
+                        )}
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <StatusBadge status={s.overall_status} map={SUB_STATUS_CLASS} />
+                      </TableCell>
+                      <TableCell className="align-top text-xs tabular-nums">
+                        {passed}/{total} passed · {done}/{total} done
+                        {failed > 0 && <span className="text-destructive"> · {failed} failed</span>}
+                      </TableCell>
+                      <TableCell className="align-top text-xs">
+                        {c?.deadline || <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="align-top text-xs text-muted-foreground">
+                        {fmt(lastTs)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </ScrollArea>
+      </DialogContent>
+    </Dialog>
   );
 }
 
