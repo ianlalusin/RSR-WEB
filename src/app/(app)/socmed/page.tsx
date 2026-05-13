@@ -2319,6 +2319,29 @@ function UsersTab({ users, getToken, refreshUsers, currentUid, socmedRole }: {
   const [role, setRole] = useState<SocmedRole>('Agent');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [roleFilter, setRoleFilter] = useState<SocmedRole | 'All' | 'None'>('All');
+
+  const activeUsers = useMemo(() => users.filter(u => u.isActive), [users]);
+  const roleCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: activeUsers.length, None: 0 };
+    SOCMED_ROLES.forEach(r => { counts[r] = 0; });
+    activeUsers.forEach(u => {
+      if (u.socmedRole) counts[u.socmedRole] = (counts[u.socmedRole] || 0) + 1;
+      else counts.None += 1;
+    });
+    return counts;
+  }, [activeUsers]);
+  const filteredUsers = useMemo(() => {
+    if (roleFilter === 'All') return activeUsers;
+    if (roleFilter === 'None') return activeUsers.filter(u => !u.socmedRole);
+    return activeUsers.filter(u => u.socmedRole === roleFilter);
+  }, [activeUsers, roleFilter]);
+
+  const subTabs: { key: SocmedRole | 'All' | 'None'; label: string }[] = [
+    { key: 'All', label: 'All' },
+    ...SOCMED_ROLES.map(r => ({ key: r, label: r })),
+    { key: 'None', label: 'No Role' },
+  ];
 
   const handleCreate = async () => {
     const errs: Record<string, string> = {};
@@ -2394,8 +2417,34 @@ function UsersTab({ users, getToken, refreshUsers, currentUid, socmedRole }: {
         </Card>
       )}
 
+      <div className="flex flex-wrap gap-1.5">
+        {subTabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setRoleFilter(t.key)}
+            className={cn(
+              'px-3 py-1.5 text-xs rounded-full border transition-colors',
+              roleFilter === t.key
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-background text-muted-foreground border-border hover:text-foreground hover:bg-muted',
+            )}
+          >
+            {t.label}
+            <span className={cn(
+              'ml-1.5 inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-semibold',
+              roleFilter === t.key ? 'bg-primary-foreground/20' : 'bg-muted',
+            )}>
+              {roleCounts[t.key] ?? 0}
+            </span>
+          </button>
+        ))}
+      </div>
+
       <div className="space-y-2">
-        {users.filter(u => u.isActive).map(u => {
+        {filteredUsers.length === 0 && (
+          <EmptyState icon="👥" text={`No users in ${roleFilter === 'None' ? 'No Role' : roleFilter}`} />
+        )}
+        {filteredUsers.map(u => {
           const isPrimary = u.roleId === 'platformAdmin';
           return (
             <Card key={u.uid}>
