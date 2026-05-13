@@ -27,6 +27,12 @@ function canManageUsers(actor: VerifiedActor): boolean {
   return actor.isPlatformAdmin || role === 'Admin' || role === 'Manager';
 }
 
+function isAdminActor(actor: VerifiedActor): boolean {
+  return actor.isPlatformAdmin || actor.profile?.socmedRole === 'Admin';
+}
+
+const PRIVILEGED_ROLES = new Set(['Admin', 'Manager']);
+
 function canCheck(actor: VerifiedActor): boolean {
   const role = actor.profile?.socmedRole;
   return actor.isPlatformAdmin
@@ -608,6 +614,18 @@ export async function updateUserSocmedRole(
     }
 
     const ref = adminDb.collection('users').doc(userId);
+
+    if (!isAdminActor(actor)) {
+      const snap = await ref.get();
+      const currentRole = (snap.data()?.socmedRole as string | null | undefined) ?? null;
+      if (currentRole && PRIVILEGED_ROLES.has(currentRole)) {
+        return { success: false, error: 'Only an Admin can change the role of an Admin or Manager.' };
+      }
+      if (socmedRole && PRIVILEGED_ROLES.has(socmedRole)) {
+        return { success: false, error: 'Only an Admin can assign the Admin or Manager role.' };
+      }
+    }
+
     await ref.update({
       socmedRole: socmedRole || null,
       updatedAt: FieldValue.serverTimestamp(),
@@ -630,6 +648,9 @@ export async function createSocmedUser(
     const actor = await resolveActor(actorToken);
     if (!canManageUsers(actor)) {
       return { success: false, error: 'Permission denied. Only SocMed Admins or Managers can create SocMed users.' };
+    }
+    if (!isAdminActor(actor) && PRIVILEGED_ROLES.has(socmedRole)) {
+      return { success: false, error: 'Only an Admin can assign the Admin or Manager role.' };
     }
 
     // Create Firebase Auth user via Admin SDK
@@ -672,6 +693,14 @@ export async function removeSocmedUser(
     }
 
     const ref = adminDb.collection('users').doc(userId);
+
+    if (!isAdminActor(actor)) {
+      const snap = await ref.get();
+      const currentRole = (snap.data()?.socmedRole as string | null | undefined) ?? null;
+      if (currentRole && PRIVILEGED_ROLES.has(currentRole)) {
+        return { success: false, error: 'Only an Admin can remove an Admin or Manager.' };
+      }
+    }
 
     await ref.update({
       socmedRole: null,

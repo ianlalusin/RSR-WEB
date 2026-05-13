@@ -2312,14 +2312,24 @@ function UsersTab({ users, getToken, refreshUsers, currentUid, socmedRole }: {
   currentUid: string; socmedRole: SocmedRole;
 }) {
   const canEdit = socmedRole === 'Admin' || socmedRole === 'Manager';
+  const isAdminActor = socmedRole === 'Admin';
+  const assignableRoles: SocmedRole[] = isAdminActor
+    ? SOCMED_ROLES
+    : SOCMED_ROLES.filter(r => r !== 'Admin' && r !== 'Manager');
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<SocmedRole>('Agent');
+  const [role, setRole] = useState<SocmedRole>(isAdminActor ? 'Agent' : assignableRoles[0] ?? 'Agent');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [roleFilter, setRoleFilter] = useState<SocmedRole | 'All' | 'None'>('All');
+
+  const canEditTarget = (target: UserProfile) => {
+    if (!canEdit) return false;
+    if (isAdminActor) return true;
+    return !target.socmedRole || (target.socmedRole !== 'Admin' && target.socmedRole !== 'Manager');
+  };
 
   const activeUsers = useMemo(() => users.filter(u => u.isActive), [users]);
   const roleCounts = useMemo(() => {
@@ -2406,7 +2416,7 @@ function UsersTab({ users, getToken, refreshUsers, currentUid, socmedRole }: {
               <AppSelect
                 value={role}
                 onChange={v => setRole(v as SocmedRole)}
-                options={SOCMED_ROLES.map(r => ({ value: r, label: r }))}
+                options={assignableRoles.map(r => ({ value: r, label: r }))}
               />
             </div>
             <FieldError msg={errors.form} />
@@ -2459,12 +2469,12 @@ function UsersTab({ users, getToken, refreshUsers, currentUid, socmedRole }: {
                   {u.socmedRole && <Badge className="text-xs">{u.socmedRole}</Badge>}
                 </div>
 
-                {canEdit && (
+                {canEditTarget(u) && (
                   <div className="flex items-center gap-2">
                     <AppSelect
                       value={u.socmedRole || ''}
                       onChange={v => handleRoleChange(u.uid, v)}
-                      options={[{ value: '', label: 'No SocMed role' }, ...SOCMED_ROLES.map(r => ({ value: r, label: r }))]}
+                      options={[{ value: '', label: 'No SocMed role' }, ...assignableRoles.map(r => ({ value: r, label: r }))]}
                       className="w-44"
                     />
                     {u.socmedRole && !isPrimary && u.uid !== currentUid && (
