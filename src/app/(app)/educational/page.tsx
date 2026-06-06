@@ -11,10 +11,10 @@ import type { PageKey } from '@/lib/types';
 const educationalCards: { title: string; description: string; href: string; icon: any; pageKey: PageKey }[] = [
   {
     title: 'CHED Tulong Dunong',
-    description: 'Manage CHED Tulong Dunong scholarship program records.',
+    description: 'Review public Tulong Dunong applications, download Excel, and open the form.',
     href: '/educational/ched',
     icon: BookOpen,
-    pageKey: 'projects_educational',
+    pageKey: 'scholarship_applications',
   },
   {
     title: 'Recto Tulong Dunong',

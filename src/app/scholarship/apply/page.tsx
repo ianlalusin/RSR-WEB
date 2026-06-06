@@ -16,6 +16,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Info } from 'lucide-react';
 import {
   SCHOLARSHIP_SCHOOLS,
+  SCHOOL_NAMES,
+  ALL_COURSES,
   OTHER_SCHOOL_VALUE,
   OTHER_COURSE_VALUE,
   findSchool,
@@ -124,6 +126,7 @@ export default function ScholarshipApplyPage() {
   });
 
   const watchedSchool = form.watch('school');
+  const watchedSchoolOther = form.watch('schoolOther');
   const watchedCourse = form.watch('course');
   const isOtherSchool = watchedSchool === OTHER_SCHOOL_VALUE;
   const isOtherCourse = watchedCourse === OTHER_COURSE_VALUE;
@@ -132,6 +135,17 @@ export default function ScholarshipApplyPage() {
     if (!watchedSchool || isOtherSchool) return [];
     return findSchool(watchedSchool)?.courses ?? [];
   }, [watchedSchool, isOtherSchool]);
+
+  // Typeahead suggestions for the "Specify Course" field. If the applicant
+  // typed a school that matches the official list, suggest that school's
+  // courses; otherwise fall back to the union of all approved courses.
+  const courseSuggestions: string[] = useMemo(() => {
+    if (isOtherSchool) {
+      const matched = findSchool(watchedSchoolOther);
+      return matched?.courses ?? ALL_COURSES;
+    }
+    return findSchool(watchedSchool)?.courses ?? ALL_COURSES;
+  }, [isOtherSchool, watchedSchool, watchedSchoolOther]);
 
   // When the school changes, reset course to a sensible default.
   const handleSchoolChange = (value: string) => {
@@ -475,9 +489,23 @@ export default function ScholarshipApplyPage() {
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
                       <FormLabel>Specify School <span className="text-destructive">*</span></FormLabel>
-                      <FormControl><Input {...field} placeholder="Full school name" /></FormControl>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          list="school-suggestions"
+                          autoComplete="off"
+                          placeholder="Start typing your school name"
+                        />
+                      </FormControl>
+                      <datalist id="school-suggestions">
+                        {SCHOOL_NAMES.map((name) => (
+                          <option key={name} value={name} />
+                        ))}
+                      </datalist>
                       <FormDescription>
-                        Note: Schools not on the official list will not be shortlisted automatically.
+                        Start typing — if your school is on the official list, select it from the
+                        suggestions and it will be recognized automatically. Schools not on the list
+                        will not be shortlisted automatically.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -526,9 +554,23 @@ export default function ScholarshipApplyPage() {
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
                       <FormLabel>Specify Course <span className="text-destructive">*</span></FormLabel>
-                      <FormControl><Input {...field} placeholder="Full course title" /></FormControl>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          list="course-suggestions"
+                          autoComplete="off"
+                          placeholder="Start typing your course title"
+                        />
+                      </FormControl>
+                      <datalist id="course-suggestions">
+                        {courseSuggestions.map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
                       <FormDescription>
-                        Note: Courses not on the official list will not be shortlisted automatically.
+                        Start typing — if your course is on the official list, select it from the
+                        suggestions and it will be recognized automatically. Courses not on the list
+                        will not be shortlisted automatically.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

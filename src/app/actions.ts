@@ -15,7 +15,7 @@ import type {
   ScholarshipIncomeBracket,
   ScholarshipYearLevel,
 } from '@/lib/types/scholarship';
-import { evaluateShortlist, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
+import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
 import { canViewPage, canDo } from '@/lib/access';
 import { logAudit } from '@/lib/audit';
 import { assertActor, type VerifiedActor } from '@/lib/server-auth';
@@ -1065,23 +1065,30 @@ export async function submitScholarshipApplication(input: unknown) {
         }
         const data = parsed.data;
 
+        // Route "Other" selections back to the canonical list where the typed
+        // value actually matches a qualified school/course — applicants often
+        // pick "Other" only because they missed the entry in the dropdown.
+        const resolvedSchool = resolveSchoolInput(data.school, data.schoolOther);
+        const resolvedCourse = resolveCourseInput(resolvedSchool.school, data.course, data.courseOther);
+
         const shortlist = evaluateShortlist({
-            school: data.school,
-            schoolOther: data.schoolOther,
-            course: data.course,
-            courseOther: data.courseOther,
+            school: resolvedSchool.school,
+            schoolOther: resolvedSchool.schoolOther,
+            course: resolvedCourse.course,
+            courseOther: resolvedCourse.courseOther,
         });
 
         const referenceNo = generateScholarshipReferenceNo();
         const docRef = adminDb.collection('scholarshipApplications').doc();
 
-        // Resolve display values: if "Other", use the typed-in value for storage/export.
-        const schoolDisplay = data.school === OTHER_SCHOOL_VALUE
-            ? (data.schoolOther || 'Other')
-            : data.school;
-        const courseDisplay = data.course === OTHER_COURSE_VALUE
-            ? (data.courseOther || 'Other')
-            : data.course;
+        // Resolve display values: if still genuinely "Other", store the typed-in
+        // value; otherwise store the canonical school/course name.
+        const schoolDisplay = resolvedSchool.school === OTHER_SCHOOL_VALUE
+            ? (resolvedSchool.schoolOther || 'Other')
+            : resolvedSchool.school;
+        const courseDisplay = resolvedCourse.course === OTHER_COURSE_VALUE
+            ? (resolvedCourse.courseOther || 'Other')
+            : resolvedCourse.course;
 
         const record = {
             referenceNo,
@@ -1106,9 +1113,9 @@ export async function submitScholarshipApplication(input: unknown) {
             incomeBracket: data.incomeBracket,
 
             school: schoolDisplay,
-            schoolOther: data.school === OTHER_SCHOOL_VALUE ? (data.schoolOther ?? '') : '',
+            schoolOther: resolvedSchool.school === OTHER_SCHOOL_VALUE ? (resolvedSchool.schoolOther ?? '') : '',
             course: courseDisplay,
-            courseOther: data.course === OTHER_COURSE_VALUE ? (data.courseOther ?? '') : '',
+            courseOther: resolvedCourse.course === OTHER_COURSE_VALUE ? (resolvedCourse.courseOther ?? '') : '',
             yearLevel: data.yearLevel,
             expectedGraduationYear: data.expectedGraduationYear,
 
