@@ -183,6 +183,19 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // -------- Scholarship Applications (Recto Tulong Dunong) --------
+    // Public submissions arrive via the server action (Admin SDK), never the client.
+    // Reads gated by the scholarship_applications page access level.
+    function canReadScholarshipApplications() {
+      return isActiveUser() && (
+        me().access.pages.scholarship_applications.level in ['readonly', 'readwrite', 'full']
+      );
+    }
+    match /scholarshipApplications/{appId} {
+      allow read: if isAdminOrOIC() || canReadScholarshipApplications();
+      allow write: if false; // All writes via Admin SDK (public form + admin tools)
+    }
+
     // -------- Audit logs (write via Admin SDK; OIC+ can read for auditing) --------
     match /auditLogs/{logId} {
       allow read: if isAdminOrOIC();

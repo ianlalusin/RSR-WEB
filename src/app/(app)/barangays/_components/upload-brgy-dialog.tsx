@@ -15,16 +15,18 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import type { Barangay } from '@/lib/types';
 import { Loader2, UploadCloud } from 'lucide-react';
-import { bulkAddBarangays } from '@/app/actions';
+import { bulkAddBarangays, type AddBarangayInput } from '@/app/actions';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/components/providers/auth-provider';
+import { Label } from '@/components/ui/label';
 
-type UploadedBrgy = Omit<Barangay, 'id' | 'createdAt' | 'updatedAt'>;
+const DEFAULT_CYCLE_YEAR = String(new Date().getFullYear());
 
-const mapRowToBarangay = (row: any): UploadedBrgy | null => {
+type UploadedBrgy = AddBarangayInput;
+
+const mapRowToBarangay = (row: any, fallbackYear: string): UploadedBrgy | null => {
     const getValue = (key: string) => {
         const foundKey = Object.keys(row).find(k => k.toLowerCase().trim() === key.toLowerCase().trim());
         return foundKey ? row[foundKey] : undefined;
@@ -33,6 +35,7 @@ const mapRowToBarangay = (row: any): UploadedBrgy | null => {
     const brgyName = getValue('Brgy Name');
     const district = getValue('District');
     const result = getValue('Result');
+    const yearCell = getValue('Election Year');
 
     const population = Number(getValue('Population'));
     const votingPopulation = Number(getValue('Voting Population'));
@@ -41,20 +44,25 @@ const mapRowToBarangay = (row: any): UploadedBrgy | null => {
     if (!brgyName || !district || isNaN(population) || isNaN(votingPopulation) || isNaN(rsrVotes)) {
         return null;
     }
-    
+
     const favoredVotePct = votingPopulation > 0 ? (rsrVotes / votingPopulation) * 100 : 0;
+    const yearStr = yearCell ? String(yearCell).trim() : fallbackYear;
+    const cycleYear = /^\d{4}$/.test(yearStr) ? yearStr : fallbackYear;
 
     return {
         name: String(brgyName),
         districtName: String(district),
         districtId: String(district).toLowerCase().replace(/\s/g, '-'),
-        population: population,
-        votingPopulation: votingPopulation,
-        rsrVotes: rsrVotes,
-        favoredVotePct: favoredVotePct,
-        isWin: result ? String(result).toLowerCase() === 'win' : false,
+        population,
         congVisitCount: 0,
         coordinatorUids: [],
+        cycleYear,
+        cycleStats: {
+            votingPopulation,
+            rsrVotes,
+            favoredVotePct,
+            isWin: result ? String(result).toLowerCase() === 'win' : false,
+        },
     };
 }
 
@@ -64,6 +72,7 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
   const [isUploading, setIsUploading] = useState(false);
   const [parsedData, setParsedData] = useState<UploadedBrgy[]>([]);
   const [fileName, setFileName] = useState('');
+  const [fallbackYear, setFallbackYear] = useState(DEFAULT_CYCLE_YEAR);
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
 
@@ -81,8 +90,10 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
             const json = XLSX.utils.sheet_to_json(worksheet);
-            
-            const mappedData = json.map(mapRowToBarangay).filter((d): d is UploadedBrgy => d !== null);
+
+            const mappedData = json
+                .map(row => mapRowToBarangay(row, fallbackYear))
+                .filter((d): d is UploadedBrgy => d !== null);
 
             if(mappedData.length === 0) {
                 toast({
@@ -151,7 +162,17 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
     }
   };
 
-  const tableHeaders = parsedData.length > 0 ? Object.keys(parsedData[0]) : [];
+  const previewRows = parsedData.map(row => ({
+      name: row.name,
+      districtName: row.districtName,
+      population: row.population,
+      cycleYear: row.cycleYear,
+      votingPopulation: row.cycleStats.votingPopulation,
+      rsrVotes: row.cycleStats.rsrVotes,
+      favoredVotePct: row.cycleStats.favoredVotePct.toFixed(1),
+      isWin: row.cycleStats.isWin ? 'Win' : 'Lose',
+  }));
+  const tableHeaders = previewRows.length > 0 ? Object.keys(previewRows[0]) : [];
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => {
@@ -171,12 +192,27 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
         <DialogHeader>
           <DialogTitle>Upload Barangay Data</DialogTitle>
           <DialogDescription>
-            Select an Excel file (.xlsx, .xls, .csv). Ensure columns match: Brgy Name, District, Population, Voting Population, RSR Votes, and Result.
+            Select an Excel file (.xlsx, .xls, .csv). Columns: Brgy Name, District, Population, Voting Population, RSR Votes, Result. Optional column "Election Year" assigns the row to a specific cycle; rows without it use the fallback year below.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-            <Input type="file" accept=".xlsx, .xls, .csv" onChange={handleFileChange} />
+            <div className="flex items-end gap-3">
+                <div className="flex-1">
+                    <Label htmlFor="upload-file">File</Label>
+                    <Input id="upload-file" type="file" accept=".xlsx, .xls, .csv" onChange={handleFileChange} />
+                </div>
+                <div className="w-32">
+                    <Label htmlFor="fallback-year">Fallback Year</Label>
+                    <Input
+                        id="fallback-year"
+                        value={fallbackYear}
+                        onChange={(e) => setFallbackYear(e.target.value.trim())}
+                        placeholder="2025"
+                        maxLength={4}
+                    />
+                </div>
+            </div>
             {fileName && <p className="text-sm text-muted-foreground">Selected file: {fileName}</p>}
         </div>
 
@@ -191,7 +227,7 @@ export default function UploadBrgyDialog({ onSuccess }: { onSuccess?: () => void
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {parsedData.slice(0, 20).map((row, index) => (
+                            {previewRows.slice(0, 20).map((row, index) => (
                                 <TableRow key={index}>
                                     {tableHeaders.map(header => (
                                         <TableCell key={header}>

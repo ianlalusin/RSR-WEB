@@ -6,9 +6,21 @@ import {
 } from '@/ai/flows/generate-barangay-profiles';
 import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { ProjectRecord, Barangay, CaptainProfile, UserProfile, Department, Role, MedicalRecord, Hospital, RequestRecord, RequestStatus, TaskRecord, TaskStatus } from '@/lib/types';
+import { ProjectRecord, Barangay, BarangayCycle, BarangayCycleStats, CaptainProfile, UserProfile, Department, Role, MedicalRecord, Hospital, RequestRecord, RequestStatus, TaskRecord, TaskStatus } from '@/lib/types';
+import type {
+  ScholarshipApplication,
+  ScholarshipSex,
+  ScholarshipCivilStatus,
+  ScholarshipRelationship,
+  ScholarshipIncomeBracket,
+  ScholarshipYearLevel,
+} from '@/lib/types/scholarship';
+import { evaluateShortlist, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
+import { canViewPage, canDo } from '@/lib/access';
 import { logAudit } from '@/lib/audit';
 import { assertActor, type VerifiedActor } from '@/lib/server-auth';
+import { randomBytes } from 'crypto';
+import { z } from 'zod';
 
 type ActorToken = string;
 
@@ -41,35 +53,69 @@ export async function generateBarangayProfiles(input: GenerateBarangayProfilesIn
   }
 }
 
-type AddBarangayData = Omit<Barangay, 'id' | 'createdAt' | 'updatedAt'>;
+export interface AddBarangayInput {
+    name: string;
+    districtId: string;
+    districtName: string;
+    population: number;
+    congVisitCount?: number;
+    coordinatorUids?: string[];
+    cycleYear: string;
+    cycleStats: BarangayCycleStats;
+}
 
-export async function addBarangay(data: AddBarangayData, actorToken: ActorToken) {
+function buildListItem(brgy: { name: string; districtId: string; districtName: string; population: number }, cycleYear: string, stats: BarangayCycleStats) {
+    return {
+        name: brgy.name,
+        districtId: brgy.districtId,
+        districtName: brgy.districtName,
+        population: brgy.population,
+        currentCycle: cycleYear,
+        votingPopulation: stats.votingPopulation,
+        rsrVotes: stats.rsrVotes,
+        favoredVotePct: stats.favoredVotePct,
+        isWin: stats.isWin,
+    };
+}
+
+export async function addBarangay(data: AddBarangayInput, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
         const batch = adminDb.batch();
         const newBrgyRef = adminDb.collection('barangays').doc();
 
         batch.set(newBrgyRef, {
-            ...data,
-            createdAt: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-        });
-
-        const listItemData = {
             name: data.name,
             districtId: data.districtId,
             districtName: data.districtName,
             population: data.population,
-            votingPopulation: data.votingPopulation,
-            rsrVotes: data.rsrVotes,
-            favoredVotePct: data.favoredVotePct,
-            isWin: data.isWin,
-        };
+            congVisitCount: data.congVisitCount ?? 0,
+            coordinatorUids: data.coordinatorUids ?? [],
+            currentCycle: data.cycleYear,
+            currentStats: data.cycleStats,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        const cycleRef = newBrgyRef.collection('cycles').doc(data.cycleYear);
+        batch.set(cycleRef, {
+            year: data.cycleYear,
+            ...data.cycleStats,
+            captain: { name: '' },
+            secretary: {},
+            councilors: [],
+            createdAt: FieldValue.serverTimestamp(),
+            createdByUid: actor.uid,
+            createdByEmail: actor.email,
+            updatedAt: FieldValue.serverTimestamp(),
+            updatedByUid: actor.uid,
+            updatedByEmail: actor.email,
+        });
 
         const listDocRef = adminDb.collection('lists').doc('barangays');
         batch.set(listDocRef, {
             barangays: {
-                [newBrgyRef.id]: listItemData
+                [newBrgyRef.id]: buildListItem(data, data.cycleYear, data.cycleStats),
             }
         }, { merge: true });
 
@@ -84,13 +130,15 @@ export async function addBarangay(data: AddBarangayData, actorToken: ActorToken)
         });
 
         await batch.commit();
-        return { success: true };
+        return { success: true, id: newBrgyRef.id };
     } catch (error: any) {
         return { success: false, error: error.message };
     }
 }
 
-export async function updateBarangay(id: string, data: Partial<Omit<Barangay, 'id'>>, actorToken: ActorToken) {
+export type UpdateBarangayInput = Partial<Pick<Barangay, 'name' | 'districtId' | 'districtName' | 'population' | 'congVisitCount' | 'coordinatorUids'>>;
+
+export async function updateBarangay(id: string, data: UpdateBarangayInput, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
         const batch = adminDb.batch();
@@ -106,10 +154,6 @@ export async function updateBarangay(id: string, data: Partial<Omit<Barangay, 'i
         if (data.districtId !== undefined) listUpdateData[`barangays.${id}.districtId`] = data.districtId;
         if (data.districtName !== undefined) listUpdateData[`barangays.${id}.districtName`] = data.districtName;
         if (data.population !== undefined) listUpdateData[`barangays.${id}.population`] = data.population;
-        if (data.votingPopulation !== undefined) listUpdateData[`barangays.${id}.votingPopulation`] = data.votingPopulation;
-        if (data.rsrVotes !== undefined) listUpdateData[`barangays.${id}.rsrVotes`] = data.rsrVotes;
-        if (data.favoredVotePct !== undefined) listUpdateData[`barangays.${id}.favoredVotePct`] = data.favoredVotePct;
-        if (data.isWin !== undefined) listUpdateData[`barangays.${id}.isWin`] = data.isWin;
 
         if (Object.keys(listUpdateData).length > 0) {
             const listDocRef = adminDb.collection('lists').doc('barangays');
@@ -159,7 +203,7 @@ export async function deleteBarangay(id: string, actorToken: ActorToken) {
     }
 }
 
-export async function bulkAddBarangays(data: Omit<Barangay, 'id' | 'createdAt' | 'updatedAt'>[], actorToken: ActorToken) {
+export async function bulkAddBarangays(data: AddBarangayInput[], actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
         const batch = adminDb.batch();
@@ -169,22 +213,34 @@ export async function bulkAddBarangays(data: Omit<Barangay, 'id' | 'createdAt' |
         data.forEach(brgyData => {
             const docRef = adminDb.collection('barangays').doc();
             batch.set(docRef, {
-                ...brgyData,
-                createdAt: FieldValue.serverTimestamp(),
-                updatedAt: FieldValue.serverTimestamp(),
-            });
-
-            const listItemData = {
                 name: brgyData.name,
                 districtId: brgyData.districtId,
                 districtName: brgyData.districtName,
                 population: brgyData.population,
-                votingPopulation: brgyData.votingPopulation,
-                rsrVotes: brgyData.rsrVotes,
-                favoredVotePct: brgyData.favoredVotePct,
-                isWin: brgyData.isWin,
-            };
-            listUpdates[docRef.id] = listItemData;
+                congVisitCount: brgyData.congVisitCount ?? 0,
+                coordinatorUids: brgyData.coordinatorUids ?? [],
+                currentCycle: brgyData.cycleYear,
+                currentStats: brgyData.cycleStats,
+                createdAt: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
+            });
+
+            const cycleRef = docRef.collection('cycles').doc(brgyData.cycleYear);
+            batch.set(cycleRef, {
+                year: brgyData.cycleYear,
+                ...brgyData.cycleStats,
+                captain: { name: '' },
+                secretary: {},
+                councilors: [],
+                createdAt: FieldValue.serverTimestamp(),
+                createdByUid: actor.uid,
+                createdByEmail: actor.email,
+                updatedAt: FieldValue.serverTimestamp(),
+                updatedByUid: actor.uid,
+                updatedByEmail: actor.email,
+            });
+
+            listUpdates[docRef.id] = buildListItem(brgyData, brgyData.cycleYear, brgyData.cycleStats);
         });
 
         const listDocRef = adminDb.collection('lists').doc('barangays');
@@ -200,6 +256,149 @@ export async function bulkAddBarangays(data: Omit<Barangay, 'id' | 'createdAt' |
         });
 
         await batch.commit();
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export type UpsertCycleInput = Partial<{
+    votingPopulation: number;
+    rsrVotes: number;
+    favoredVotePct: number;
+    isWin: boolean;
+    captain: BarangayCycle['captain'];
+    secretary: BarangayCycle['secretary'];
+    councilors: BarangayCycle['councilors'];
+}>;
+
+export async function upsertBarangayCycle(brgyId: string, year: string, data: UpsertCycleInput, actorToken: ActorToken) {
+    try {
+        const actor = await resolveActor(actorToken);
+        const batch = adminDb.batch();
+
+        const brgyRef = adminDb.collection('barangays').doc(brgyId);
+        const cycleRef = brgyRef.collection('cycles').doc(year);
+
+        const brgySnap = await brgyRef.get();
+        if (!brgySnap.exists) {
+            return { success: false, error: 'Barangay not found.' };
+        }
+        const brgyData = brgySnap.data() as Barangay;
+        const cycleSnap = await cycleRef.get();
+        const isCreating = !cycleSnap.exists;
+
+        const updateData: Record<string, any> = {
+            ...data,
+            year,
+            updatedAt: FieldValue.serverTimestamp(),
+            updatedByUid: actor.uid,
+            updatedByEmail: actor.email,
+        };
+
+        if (isCreating) {
+            batch.set(cycleRef, {
+                votingPopulation: 0,
+                rsrVotes: 0,
+                favoredVotePct: 0,
+                isWin: false,
+                captain: { name: '' },
+                secretary: {},
+                councilors: [],
+                ...updateData,
+                createdAt: FieldValue.serverTimestamp(),
+                createdByUid: actor.uid,
+                createdByEmail: actor.email,
+            });
+        } else {
+            batch.update(cycleRef, updateData);
+        }
+
+        const touchedStats = data.votingPopulation !== undefined || data.rsrVotes !== undefined || data.favoredVotePct !== undefined || data.isWin !== undefined;
+        if (touchedStats && brgyData.currentCycle === year) {
+            const existing = (cycleSnap.exists ? cycleSnap.data() : {}) as Partial<BarangayCycle>;
+            const nextStats: BarangayCycleStats = {
+                votingPopulation: data.votingPopulation ?? existing.votingPopulation ?? 0,
+                rsrVotes: data.rsrVotes ?? existing.rsrVotes ?? 0,
+                favoredVotePct: data.favoredVotePct ?? existing.favoredVotePct ?? 0,
+                isWin: data.isWin ?? existing.isWin ?? false,
+            };
+            batch.update(brgyRef, {
+                currentStats: nextStats,
+                updatedAt: FieldValue.serverTimestamp(),
+            });
+            const listDocRef = adminDb.collection('lists').doc('barangays');
+            batch.update(listDocRef, {
+                [`barangays.${brgyId}.votingPopulation`]: nextStats.votingPopulation,
+                [`barangays.${brgyId}.rsrVotes`]: nextStats.rsrVotes,
+                [`barangays.${brgyId}.favoredVotePct`]: nextStats.favoredVotePct,
+                [`barangays.${brgyId}.isWin`]: nextStats.isWin,
+                [`barangays.${brgyId}.currentCycle`]: year,
+            });
+        }
+
+        await batch.commit();
+
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: isCreating ? 'create' : 'update',
+            entityType: 'barangayCycle',
+            entityId: `${brgyId}/${year}`,
+            details: { year, ...data },
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error.message };
+    }
+}
+
+export async function setCurrentCycle(brgyId: string, year: string, actorToken: ActorToken) {
+    try {
+        const actor = await resolveActor(actorToken);
+
+        const brgyRef = adminDb.collection('barangays').doc(brgyId);
+        const cycleRef = brgyRef.collection('cycles').doc(year);
+        const cycleSnap = await cycleRef.get();
+        if (!cycleSnap.exists) {
+            return { success: false, error: 'Cycle does not exist for this barangay.' };
+        }
+        const cycle = cycleSnap.data() as BarangayCycle;
+        const stats: BarangayCycleStats = {
+            votingPopulation: cycle.votingPopulation ?? 0,
+            rsrVotes: cycle.rsrVotes ?? 0,
+            favoredVotePct: cycle.favoredVotePct ?? 0,
+            isWin: cycle.isWin ?? false,
+        };
+
+        const batch = adminDb.batch();
+        batch.update(brgyRef, {
+            currentCycle: year,
+            currentStats: stats,
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        const listDocRef = adminDb.collection('lists').doc('barangays');
+        batch.update(listDocRef, {
+            [`barangays.${brgyId}.currentCycle`]: year,
+            [`barangays.${brgyId}.votingPopulation`]: stats.votingPopulation,
+            [`barangays.${brgyId}.rsrVotes`]: stats.rsrVotes,
+            [`barangays.${brgyId}.favoredVotePct`]: stats.favoredVotePct,
+            [`barangays.${brgyId}.isWin`]: stats.isWin,
+        });
+
+        await batch.commit();
+
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'update',
+            entityType: 'barangay',
+            entityId: brgyId,
+            details: { action: 'setCurrentCycle', year },
+        });
+
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
@@ -257,42 +456,23 @@ export async function updateSelfProfile(uid: string, data: { displayName: string
     }
 }
 
-export async function updateCaptainProfile(brgyId: string, isCreating: boolean, data: Partial<Omit<CaptainProfile, 'createdAt'>>, actorToken: ActorToken) {
+/**
+ * Legacy entry point — routes captain/secretary/councilors updates into the
+ * current cycle subcollection. New callers should use `upsertBarangayCycle`.
+ */
+export async function updateCaptainProfile(brgyId: string, _isCreating: boolean, data: Partial<Omit<CaptainProfile, 'createdAt'>>, actorToken: ActorToken) {
     try {
-        const actor = await resolveActor(actorToken);
-        const batch = adminDb.batch();
-        const profileDoc = adminDb.collection(`barangays/${brgyId}/captainProfile`).doc('main');
+        const brgySnap = await adminDb.collection('barangays').doc(brgyId).get();
+        if (!brgySnap.exists) return { success: false, error: 'Barangay not found.' };
+        const currentCycle = (brgySnap.data() as Barangay).currentCycle;
+        if (!currentCycle) return { success: false, error: 'No current cycle set for this barangay.' };
 
-        const updateData = {
-            ...data,
-            updatedAt: FieldValue.serverTimestamp(),
-            updatedByUid: actor.uid,
-            updatedByEmail: actor.email,
-        };
+        const cycleUpdate: UpsertCycleInput = {};
+        if (data.captain !== undefined) cycleUpdate.captain = data.captain as BarangayCycle['captain'];
+        if (data.secretary !== undefined) cycleUpdate.secretary = data.secretary;
+        if (data.councilors !== undefined) cycleUpdate.councilors = data.councilors;
 
-        if (isCreating) {
-            batch.set(profileDoc, {
-                ...updateData,
-                createdAt: FieldValue.serverTimestamp(),
-                createdByUid: actor.uid,
-                createdByEmail: actor.email,
-            });
-        } else {
-            batch.update(profileDoc, updateData);
-        }
-
-        await batch.commit();
-
-        await logAudit({
-            actorUid: actor.uid,
-            actorEmail: actor.email,
-            action: isCreating ? 'create' : 'update',
-            entityType: 'captainProfile',
-            entityId: profileDoc.id,
-            details: data,
-        });
-
-        return { success: true };
+        return upsertBarangayCycle(brgyId, currentCycle, cycleUpdate, actorToken);
     } catch (error: any) {
         return { success: false, error: error.message };
     }
@@ -795,5 +975,367 @@ export async function deleteTask(id: string, actorToken: ActorToken) {
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
+    }
+}
+
+// ============================================================================
+// Scholarship — Recto Tulong Dunong
+// ============================================================================
+
+const SEX_VALUES: ScholarshipSex[] = ['Male', 'Female', 'Prefer not to say'];
+const CIVIL_STATUS_VALUES: ScholarshipCivilStatus[] = ['Single', 'Married', 'Widowed', 'Separated'];
+const RELATIONSHIP_VALUES: ScholarshipRelationship[] = ['Mother', 'Father', 'Guardian', 'Sibling', 'Spouse', 'Other'];
+const INCOME_BRACKET_VALUES: ScholarshipIncomeBracket[] = [
+    'Below ₱10,000',
+    '₱10,000–₱20,000',
+    '₱20,001–₱40,000',
+    '₱40,001–₱80,000',
+    'Above ₱80,000',
+];
+const YEAR_LEVEL_VALUES: ScholarshipYearLevel[] = [
+    'Incoming 1st Year', '1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year', 'Graduating',
+];
+
+const scholarshipApplicationSchema = z.object({
+    lastName: z.string().trim().min(1, 'Last name is required.').max(100),
+    firstName: z.string().trim().min(1, 'First name is required.').max(100),
+    middleName: z.string().trim().max(100).optional().default(''),
+    suffix: z.string().trim().max(20).optional().default(''),
+    dateOfBirth: z.string().trim().min(1, 'Date of birth is required.'),
+    sex: z.enum(SEX_VALUES as [ScholarshipSex, ...ScholarshipSex[]]),
+    civilStatus: z.enum(CIVIL_STATUS_VALUES as [ScholarshipCivilStatus, ...ScholarshipCivilStatus[]]),
+
+    homeAddress: z.string().trim().min(1, 'Home address is required.').max(300),
+    city: z.string().trim().min(1, 'City/Municipality is required.').max(100),
+    province: z.string().trim().min(1, 'Province is required.').max(100),
+    postalCode: z.string().trim().max(20).optional().default(''),
+    mobile: z.string().trim().min(1, 'Mobile number is required.').max(30),
+    email: z.string().trim().email('A valid email is required.').max(200),
+
+    parentName: z.string().trim().min(1, 'Parent/Guardian name is required.').max(200),
+    parentRelationship: z.enum(RELATIONSHIP_VALUES as [ScholarshipRelationship, ...ScholarshipRelationship[]]),
+    parentContact: z.string().trim().min(1, 'Parent/Guardian contact number is required.').max(30),
+    incomeBracket: z.enum(INCOME_BRACKET_VALUES as [ScholarshipIncomeBracket, ...ScholarshipIncomeBracket[]]),
+
+    school: z.string().trim().min(1, 'School is required.'),
+    schoolOther: z.string().trim().max(200).optional().default(''),
+    course: z.string().trim().min(1, 'Course is required.'),
+    courseOther: z.string().trim().max(200).optional().default(''),
+    yearLevel: z.enum(YEAR_LEVEL_VALUES as [ScholarshipYearLevel, ...ScholarshipYearLevel[]]),
+    expectedGraduationYear: z.coerce.number().int().min(2026).max(2035),
+
+    consentGiven: z.literal(true, { errorMap: () => ({ message: 'You must give your consent to submit.' }) }),
+}).superRefine((data, ctx) => {
+    if (data.school === OTHER_SCHOOL_VALUE && !data.schoolOther) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['schoolOther'], message: 'Please specify your school.' });
+    }
+    if (data.course === OTHER_COURSE_VALUE && !data.courseOther) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['courseOther'], message: 'Please specify your course.' });
+    }
+});
+
+export type SubmitScholarshipApplicationInput = z.infer<typeof scholarshipApplicationSchema>;
+
+function generateScholarshipReferenceNo(): string {
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(now.getUTCDate()).padStart(2, '0');
+    const rand = randomBytes(3).toString('hex').toUpperCase();
+    return `RTD-${yyyy}${mm}${dd}-${rand}`;
+}
+
+/**
+ * PUBLIC — accepts a scholarship application from the unauthenticated
+ * /scholarship/apply form. Does NOT call assertActor. Validates fully
+ * server-side using zod, computes shortlisting, and writes the record
+ * via the Admin SDK (firestore rules deny client writes to this
+ * collection).
+ */
+export async function submitScholarshipApplication(input: unknown) {
+    try {
+        const parsed = scholarshipApplicationSchema.safeParse(input);
+        if (!parsed.success) {
+            const firstIssue = parsed.error.issues[0];
+            return {
+                success: false as const,
+                error: firstIssue?.message ?? 'Invalid submission.',
+                fieldErrors: parsed.error.flatten().fieldErrors,
+            };
+        }
+        const data = parsed.data;
+
+        const shortlist = evaluateShortlist({
+            school: data.school,
+            schoolOther: data.schoolOther,
+            course: data.course,
+            courseOther: data.courseOther,
+        });
+
+        const referenceNo = generateScholarshipReferenceNo();
+        const docRef = adminDb.collection('scholarshipApplications').doc();
+
+        // Resolve display values: if "Other", use the typed-in value for storage/export.
+        const schoolDisplay = data.school === OTHER_SCHOOL_VALUE
+            ? (data.schoolOther || 'Other')
+            : data.school;
+        const courseDisplay = data.course === OTHER_COURSE_VALUE
+            ? (data.courseOther || 'Other')
+            : data.course;
+
+        const record = {
+            referenceNo,
+            lastName: data.lastName,
+            firstName: data.firstName,
+            middleName: data.middleName ?? '',
+            suffix: data.suffix ?? '',
+            dateOfBirth: data.dateOfBirth,
+            sex: data.sex,
+            civilStatus: data.civilStatus,
+
+            homeAddress: data.homeAddress,
+            city: data.city,
+            province: data.province,
+            postalCode: data.postalCode ?? '',
+            mobile: data.mobile,
+            email: data.email,
+
+            parentName: data.parentName,
+            parentRelationship: data.parentRelationship,
+            parentContact: data.parentContact,
+            incomeBracket: data.incomeBracket,
+
+            school: schoolDisplay,
+            schoolOther: data.school === OTHER_SCHOOL_VALUE ? (data.schoolOther ?? '') : '',
+            course: courseDisplay,
+            courseOther: data.course === OTHER_COURSE_VALUE ? (data.courseOther ?? '') : '',
+            yearLevel: data.yearLevel,
+            expectedGraduationYear: data.expectedGraduationYear,
+
+            consentGiven: true,
+
+            isShortlisted: shortlist.isShortlisted,
+            shortlistReason: shortlist.reason,
+
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        };
+
+        await docRef.set(record);
+
+        // Audit the submission with a system actor — the applicant is unauthenticated.
+        await logAudit({
+            actorUid: 'public',
+            actorEmail: data.email,
+            action: 'create',
+            entityType: 'scholarshipApplication',
+            entityId: docRef.id,
+            details: {
+                referenceNo,
+                isShortlisted: shortlist.isShortlisted,
+                shortlistReason: shortlist.reason,
+                school: schoolDisplay,
+                course: courseDisplay,
+            },
+        });
+
+        return { success: true as const, id: docRef.id, referenceNo };
+    } catch (error: any) {
+        console.error('submitScholarshipApplication error:', error);
+        return { success: false as const, error: error?.message ?? 'Failed to submit application.' };
+    }
+}
+
+function assertCanViewScholarship(actor: VerifiedActor) {
+    if (actor.isPlatformAdmin) return;
+    if (!actor.profile) throw new Error('Permission denied.');
+    if (!canViewPage(actor.profile, 'scholarship_applications')) {
+        throw new Error('Permission denied. You do not have access to scholarship applications.');
+    }
+}
+
+export type ScholarshipApplicationListItem = Omit<ScholarshipApplication, 'createdAt' | 'updatedAt'> & {
+    createdAt: string | null;
+    updatedAt: string | null;
+};
+
+function serializeTimestamp(value: any): string | null {
+    if (!value) return null;
+    if (typeof value?.toDate === 'function') {
+        return value.toDate().toISOString();
+    }
+    if (value instanceof Date) return value.toISOString();
+    return null;
+}
+
+/**
+ * ADMIN — lists every scholarship application for users with
+ * scholarship_applications page access. Audited.
+ */
+export async function getScholarshipApplications(actorToken: ActorToken): Promise<
+    | { success: true; data: ScholarshipApplicationListItem[] }
+    | { success: false; error: string }
+> {
+    try {
+        const actor = await resolveActor(actorToken);
+        assertCanViewScholarship(actor);
+
+        const snap = await adminDb
+            .collection('scholarshipApplications')
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        const items: ScholarshipApplicationListItem[] = snap.docs.map((d) => {
+            const raw = d.data() as any;
+            return {
+                id: d.id,
+                referenceNo: raw.referenceNo,
+                lastName: raw.lastName,
+                firstName: raw.firstName,
+                middleName: raw.middleName ?? '',
+                suffix: raw.suffix ?? '',
+                dateOfBirth: raw.dateOfBirth,
+                sex: raw.sex,
+                civilStatus: raw.civilStatus,
+                homeAddress: raw.homeAddress,
+                city: raw.city,
+                province: raw.province,
+                postalCode: raw.postalCode ?? '',
+                mobile: raw.mobile,
+                email: raw.email,
+                parentName: raw.parentName,
+                parentRelationship: raw.parentRelationship,
+                parentContact: raw.parentContact,
+                incomeBracket: raw.incomeBracket,
+                school: raw.school,
+                schoolOther: raw.schoolOther ?? '',
+                course: raw.course,
+                courseOther: raw.courseOther ?? '',
+                yearLevel: raw.yearLevel,
+                expectedGraduationYear: raw.expectedGraduationYear,
+                consentGiven: raw.consentGiven === true,
+                isShortlisted: raw.isShortlisted === true,
+                shortlistReason: raw.shortlistReason ?? '',
+                createdAt: serializeTimestamp(raw.createdAt),
+                updatedAt: serializeTimestamp(raw.updatedAt),
+            };
+        });
+
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'view',
+            entityType: 'scholarshipApplication',
+            entityId: 'list',
+            details: { count: items.length },
+        });
+
+        return { success: true, data: items };
+    } catch (error: any) {
+        console.error('getScholarshipApplications error:', error);
+        return { success: false, error: error?.message ?? 'Failed to load applications.' };
+    }
+}
+
+function csvCell(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    const s = String(value);
+    if (/[",\n\r]/.test(s)) {
+        return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+}
+
+/**
+ * ADMIN — exports applications as CSV. Accepts an optional filter so the
+ * client can ship "All / Shortlisted / Not Shortlisted" without a second
+ * round-trip. Audited.
+ */
+export async function exportScholarshipApplicationsCSV(
+    actorToken: ActorToken,
+    filter: 'all' | 'shortlisted' | 'not_shortlisted' = 'all',
+): Promise<{ success: true; csv: string; filename: string } | { success: false; error: string }> {
+    try {
+        const actor = await resolveActor(actorToken);
+        assertCanViewScholarship(actor);
+        if (!actor.isPlatformAdmin && actor.profile && !canDo(actor.profile, 'scholarship_applications', 'read')) {
+            return { success: false, error: 'Permission denied.' };
+        }
+
+        const snap = await adminDb
+            .collection('scholarshipApplications')
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        const rows = snap.docs
+            .map((d) => d.data() as any)
+            .filter((r) => {
+                if (filter === 'shortlisted') return r.isShortlisted === true;
+                if (filter === 'not_shortlisted') return r.isShortlisted !== true;
+                return true;
+            });
+
+        const header = [
+            'Date Submitted', 'Reference No.', 'Last Name', 'First Name', 'Middle Name', 'Suffix',
+            'Date of Birth', 'Sex', 'Civil Status',
+            'Home Address', 'City/Municipality', 'Province', 'Postal Code', 'Mobile', 'Email',
+            'Parent/Guardian', 'Relationship', 'Parent Contact', 'Income Bracket',
+            'School', 'Course', 'Year Level', 'Expected Graduation Year',
+            'Shortlisted', 'Shortlist Reason',
+        ];
+
+        const lines: string[] = [header.map(csvCell).join(',')];
+        for (const r of rows) {
+            const submittedIso = serializeTimestamp(r.createdAt) ?? '';
+            lines.push([
+                submittedIso, r.referenceNo, r.lastName, r.firstName, r.middleName ?? '', r.suffix ?? '',
+                r.dateOfBirth, r.sex, r.civilStatus,
+                r.homeAddress, r.city, r.province, r.postalCode ?? '', r.mobile, r.email,
+                r.parentName, r.parentRelationship, r.parentContact, r.incomeBracket,
+                r.school, r.course, r.yearLevel, r.expectedGraduationYear,
+                r.isShortlisted ? 'YES' : 'NO', r.shortlistReason ?? '',
+            ].map(csvCell).join(','));
+        }
+
+        const csv = lines.join('\r\n');
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `recto-tulong-dunong-${filter}-${stamp}.csv`;
+
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'export',
+            entityType: 'scholarshipApplication',
+            entityId: 'list',
+            details: { filter, count: rows.length },
+        });
+
+        return { success: true, csv, filename };
+    } catch (error: any) {
+        console.error('exportScholarshipApplicationsCSV error:', error);
+        return { success: false, error: error?.message ?? 'Failed to export CSV.' };
+    }
+}
+
+/**
+ * ADMIN — logs a "view detail" audit event. Called from the client when
+ * a user opens a submission's detail dialog. The underlying record is
+ * already on the client thanks to getScholarshipApplications, so we
+ * only need to record that the human looked at it.
+ */
+export async function logScholarshipApplicationView(applicationId: string, actorToken: ActorToken) {
+    try {
+        const actor = await resolveActor(actorToken);
+        assertCanViewScholarship(actor);
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'view',
+            entityType: 'scholarshipApplication',
+            entityId: applicationId,
+        });
+        return { success: true as const };
+    } catch (error: any) {
+        return { success: false as const, error: error?.message ?? 'Failed to log view.' };
     }
 }

@@ -15,7 +15,7 @@ import {
   DialogClose
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
@@ -26,16 +26,23 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/components/providers/auth-provider';
 
-const formSchema = z.object({
+const DEFAULT_CYCLE_YEAR = String(new Date().getFullYear());
+
+const editSchema = z.object({
   name: z.string().min(2, 'Name is required.'),
   districtName: z.string().min(1, 'District is required.'),
   population: z.coerce.number().int().positive('Must be a positive number.'),
-  votingPopulation: z.coerce.number().int().positive('Must be a positive number.'),
-  rsrVotes: z.coerce.number().int().nonnegative('Must be a non-negative number.'),
+});
+
+const createSchema = editSchema.extend({
+  cycleYear: z.string().regex(/^\d{4}$/, 'Year must be a 4-digit year.'),
+  votingPopulation: z.coerce.number().int().nonnegative('Must be 0 or greater.'),
+  rsrVotes: z.coerce.number().int().nonnegative('Must be 0 or greater.'),
   isWin: z.boolean().default(false),
 });
 
-type FormValues = z.infer<typeof formSchema>;
+type EditValues = z.infer<typeof editSchema>;
+type CreateValues = z.infer<typeof createSchema>;
 
 interface Props {
   barangay?: Barangay;
@@ -57,19 +64,20 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
   const { user, userProfile } = useAuth();
   const isEditMode = !!barangay;
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+  const form = useForm<CreateValues>({
+    resolver: zodResolver(isEditMode ? editSchema : createSchema) as any,
     defaultValues: {
       name: barangay?.name || '',
       districtName: barangay?.districtName || '',
       population: barangay?.population || 0,
-      votingPopulation: barangay?.votingPopulation || 0,
-      rsrVotes: barangay?.rsrVotes || 0,
-      isWin: barangay?.isWin || false,
+      cycleYear: DEFAULT_CYCLE_YEAR,
+      votingPopulation: 0,
+      rsrVotes: 0,
+      isWin: false,
     },
   });
 
-  const onSubmit = async (values: FormValues) => {
+  const onSubmit = async (values: CreateValues) => {
     if (!userProfile) {
         toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in.' });
         return;
@@ -77,19 +85,34 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
     const actorToken = await user!.getIdToken();
 
     try {
-      const favoredVotePct = values.votingPopulation > 0 ? (values.rsrVotes / values.votingPopulation) * 100 : 0;
       let result;
       if (isEditMode) {
-        result = await updateBarangay(barangay.id, { ...values, favoredVotePct }, actorToken);
+        const editValues: EditValues = {
+          name: values.name,
+          districtName: values.districtName,
+          population: values.population,
+        };
+        result = await updateBarangay(barangay.id, {
+          ...editValues,
+          districtId: editValues.districtName.toLowerCase().replace(/\s/g, '-'),
+        }, actorToken);
       } else {
-        const newBrgyData = {
-          ...values,
-          favoredVotePct,
+        const favoredVotePct = values.votingPopulation > 0 ? (values.rsrVotes / values.votingPopulation) * 100 : 0;
+        result = await addBarangay({
+          name: values.name,
+          districtName: values.districtName,
           districtId: values.districtName.toLowerCase().replace(/\s/g, '-'),
+          population: values.population,
           congVisitCount: 0,
           coordinatorUids: [],
-        }
-        result = await addBarangay(newBrgyData, actorToken);
+          cycleYear: values.cycleYear,
+          cycleStats: {
+            votingPopulation: values.votingPopulation,
+            rsrVotes: values.rsrVotes,
+            favoredVotePct,
+            isWin: values.isWin,
+          },
+        }, actorToken);
       }
 
       if (result.success) {
@@ -115,11 +138,13 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>{isEditMode ? 'Edit Barangay' : 'Add New Barangay'}</DialogTitle>
           <DialogDescription>
-            {isEditMode ? `Update the details for ${barangay.name}.` : 'Fill in the details for the new barangay.'}
+            {isEditMode
+              ? `Update the demographic details for ${barangay.name}. Electoral results and officials are edited per cycle from the Captain Profile dialog.`
+              : 'Fill in the barangay details. Initial election results below will be saved as the first cycle.'}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -161,68 +186,92 @@ export default function BrgyFormDialog({ barangay, children, onSuccess }: Props)
                 </FormItem>
               )}
             />
-             <div className="grid grid-cols-2 gap-4">
-                <FormField
-                control={form.control}
-                name="population"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Population</FormLabel>
-                    <FormControl>
-                        <Input type="number" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
-                />
-                <FormField
-                control={form.control}
-                name="votingPopulation"
-                render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>Voters</FormLabel>
-                    <FormControl>
-                        <Input type="number" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                    </FormItem>
-                )}
-                />
-            </div>
-             <div className="grid grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="population"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Population</FormLabel>
+                  <FormControl>
+                    <Input type="number" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {!isEditMode && (
+              <>
+                <div className="border-t pt-4">
+                  <h4 className="font-medium text-sm mb-1">Initial Election Cycle</h4>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    These values create the first cycle record. Add more cycles later from the Captain Profile dialog.
+                  </p>
+                  <FormField
+                    control={form.control}
+                    name="cycleYear"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Election Year</FormLabel>
+                        <FormControl>
+                          <Input placeholder="2025" {...field} />
+                        </FormControl>
+                        <FormDescription>4-digit year, e.g. 2025 or 2028.</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="votingPopulation"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Voters</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="rsrVotes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>RSR Votes</FormLabel>
+                        <FormControl>
+                          <Input type="number" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
                 <FormField
                   control={form.control}
-                  name="rsrVotes"
+                  name="isWin"
                   render={({ field }) => (
-                      <FormItem>
-                      <FormLabel>RSR Votes</FormLabel>
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Result</FormLabel>
                       <FormControl>
-                          <Input type="number" {...field} />
+                        <div className="flex items-center space-x-2 h-10">
+                          <Switch
+                            id="isWin-switch"
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                          <Label htmlFor="isWin-switch">{field.value ? 'Win' : 'Lose'}</Label>
+                        </div>
                       </FormControl>
-                      <FormMessage />
-                      </FormItem>
+                    </FormItem>
                   )}
                 />
-                <FormField
-                control={form.control}
-                name="isWin"
-                render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                        <FormLabel>Win Status</FormLabel>
-                        <FormControl>
-                            <div className="flex items-center space-x-2 h-10">
-                                <Switch
-                                    id="isWin-switch"
-                                    checked={field.value}
-                                    onCheckedChange={field.onChange}
-                                />
-                                <Label htmlFor="isWin-switch">{field.value ? 'Win' : 'Lose'}</Label>
-                            </div>
-                        </FormControl>
-                    </FormItem>
-                )}
-                />
-            </div>
+              </>
+            )}
+
             <DialogFooter>
               <DialogClose asChild>
                 <Button type="button" variant="secondary">Cancel</Button>

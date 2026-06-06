@@ -45,8 +45,8 @@ export default function GenerateProfilesDialog({ barangay, canGenerate }: Props)
       barangayName: barangay.name,
       districtName: barangay.districtName,
       population: barangay.population,
-      votingPopulation: barangay.votingPopulation,
-      favoredVotePct: barangay.favoredVotePct,
+      votingPopulation: barangay.currentStats?.votingPopulation ?? barangay.votingPopulation ?? 0,
+      favoredVotePct: barangay.currentStats?.favoredVotePct ?? barangay.favoredVotePct ?? 0,
     };
 
     const result = await generateBarangayProfiles(input, await user!.getIdToken());

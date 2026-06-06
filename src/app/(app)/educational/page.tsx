@@ -6,25 +6,32 @@ import { BookOpen, Award, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage } from '@/lib/access';
 
-const educationalCards = [
+import type { PageKey } from '@/lib/types';
+
+const educationalCards: { title: string; description: string; href: string; icon: any; pageKey: PageKey }[] = [
   {
     title: 'CHED Tulong Dunong',
     description: 'Manage CHED Tulong Dunong scholarship program records.',
     href: '/educational/ched',
     icon: BookOpen,
+    pageKey: 'projects_educational',
   },
   {
-    title: 'Cong Scholarship',
-    description: 'Manage congressional scholarship program records.',
+    title: 'Recto Tulong Dunong',
+    description: 'Review applications submitted through the public Tulong Dunong registration form.',
     href: '/educational/scholarship',
     icon: Award,
+    pageKey: 'scholarship_applications',
   },
 ];
 
 export default function EducationalHubPage() {
   const { userProfile, isPlatformAdminClaim } = useAuth();
+  const authOpts = { isPlatformAdminClaim };
 
-  if (!canViewPage(userProfile, 'projects_educational', { isPlatformAdminClaim })) {
+  const visibleCards = educationalCards.filter((c) => canViewPage(userProfile, c.pageKey, authOpts));
+
+  if (visibleCards.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -41,7 +48,7 @@ export default function EducationalHubPage() {
         <p className="text-muted-foreground">Scholarship programs and educational initiatives.</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {educationalCards.map((card) => (
+        {visibleCards.map((card) => (
           <Link key={card.href} href={card.href}>
             <Card className="hover:bg-muted/50 transition-colors cursor-pointer h-full">
               <CardHeader className="flex flex-row items-center gap-4">

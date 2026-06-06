@@ -68,7 +68,8 @@ export function BottomNav() {
                   </Link>
                 </Button>
               )}
-              {canViewPage(userProfile, 'projects_educational', authOpts) && (
+              {(canViewPage(userProfile, 'projects_educational', authOpts)
+                || canViewPage(userProfile, 'scholarship_applications', authOpts)) && (
                 <Button asChild variant="outline" className="flex-col h-16">
                   <Link href="/educational">
                     <GraduationCap className="h-5 w-5 mb-1" />

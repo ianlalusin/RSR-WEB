@@ -77,18 +77,28 @@ export interface District {
   isActive: boolean;
 }
 
+export interface BarangayCycleStats {
+  votingPopulation: number;
+  rsrVotes: number;
+  favoredVotePct: number;
+  isWin: boolean;
+}
+
 export interface Barangay {
   id: string;
   name: string;
   districtId: string;
   districtName: string;
   population: number;
-  votingPopulation: number;
-  rsrVotes: number;
-  favoredVotePct: number;
-  isWin: boolean;
   congVisitCount: number;
   coordinatorUids?: string[];
+  currentCycle: string;
+  currentStats: BarangayCycleStats;
+  // Legacy flat fields — kept readable on existing docs until migration completes.
+  votingPopulation?: number;
+  rsrVotes?: number;
+  favoredVotePct?: number;
+  isWin?: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -98,6 +108,7 @@ export interface BarangayListItem {
   districtId: string;
   districtName: string;
   population: number;
+  currentCycle: string;
   votingPopulation: number;
   rsrVotes: number;
   favoredVotePct: number;
@@ -108,16 +119,18 @@ export interface BarangayListDoc {
     barangays: Record<string, BarangayListItem>;
 }
 
+export interface CaptainInfo {
+  name: string;
+  photoURL?: string;
+  address?: string;
+  contact?: string;
+  birthday?: string;
+  age?: number;
+  email?: string;
+}
+
 export interface CaptainProfile {
-  captain: {
-    name: string;
-    photoURL?: string;
-    address?: string;
-    contact?: string;
-    birthday?: string;
-    age?: number;
-    email?: string;
-  };
+  captain: CaptainInfo;
   secretary: { name?: string; contact?: string; };
   councilors?: { name: string; contact?: string; }[];
   updatedAt: Timestamp;
@@ -126,6 +139,24 @@ export interface CaptainProfile {
   createdAt?: Timestamp;
   createdByUid?: string;
   createdByEmail?: string | null;
+}
+
+export interface BarangayCycle {
+  id: string;
+  year: string;
+  votingPopulation: number;
+  rsrVotes: number;
+  favoredVotePct: number;
+  isWin: boolean;
+  captain: CaptainInfo;
+  secretary: { name?: string; contact?: string; };
+  councilors?: { name: string; contact?: string; }[];
+  createdAt: Timestamp;
+  createdByUid: string;
+  createdByEmail: string | null;
+  updatedAt: Timestamp;
+  updatedByUid: string;
+  updatedByEmail: string | null;
 }
 
 export type ProjectSector = "medical" | "educational" | "infrastructure";
@@ -234,8 +265,8 @@ export interface AnalyticsData {
     departments: DepartmentAnalytics[];
 }
 
-export type AuditLogAction = 'access_update' | 'create' | 'update' | 'delete' | 'bulk_update' | 'generate_ai_profile' | 'status_change';
-export type AuditLogEntityType = 'user' | 'barangay' | 'captainProfile' | 'projectRecord' | 'medicalRecord' | 'department' | 'role' | 'hospital' | 'request' | 'task' | 'system';
+export type AuditLogAction = 'access_update' | 'create' | 'update' | 'delete' | 'bulk_update' | 'generate_ai_profile' | 'status_change' | 'view' | 'export';
+export type AuditLogEntityType = 'user' | 'barangay' | 'barangayCycle' | 'captainProfile' | 'projectRecord' | 'medicalRecord' | 'department' | 'role' | 'hospital' | 'request' | 'task' | 'system' | 'scholarshipApplication';
 
 export interface AuditLog {
     id?: string;

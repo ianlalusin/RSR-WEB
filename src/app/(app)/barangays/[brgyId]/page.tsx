@@ -17,7 +17,7 @@ import {
     CardTitle,
   } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Users, Vote, HandCoins, Edit, User, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Users, Vote, HandCoins, Edit, User, AlertTriangle, ArrowLeft, CalendarClock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import BrgyFormDialog from '../_components/brgy-form-dialog';
@@ -144,11 +144,17 @@ export default function BarangayDetailPage() {
                 <div className="flex justify-between items-start">
                     <div>
                         <CardTitle className="text-3xl font-bold">{barangay.name}</CardTitle>
-                        <CardDescription className="flex items-center gap-2 mt-2">
+                        <CardDescription className="flex items-center gap-2 mt-2 flex-wrap">
                             <span>{barangay.districtName}</span>
-                            <Badge variant={barangay.isWin ? 'default' : 'secondary'} className={barangay.isWin ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
-                                {barangay.isWin ? 'Win' : 'Lose'}
+                            <Badge variant={barangay.currentStats?.isWin ? 'default' : 'secondary'} className={barangay.currentStats?.isWin ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                                {barangay.currentStats?.isWin ? 'Win' : 'Lose'}
                             </Badge>
+                            {barangay.currentCycle && (
+                                <Badge variant="outline" className="gap-1">
+                                    <CalendarClock className="w-3 h-3" />
+                                    Cycle {barangay.currentCycle}
+                                </Badge>
+                            )}
                         </CardDescription>
                     </div>
                     <div className='flex gap-2'>
@@ -157,7 +163,7 @@ export default function BarangayDetailPage() {
                                 <Button variant="outline"><Edit className="mr-2"/>Edit Barangay</Button>
                             </BrgyFormDialog>
                         )}
-                        <CaptainProfileDialog brgyId={barangay.id} canEdit={canWrite}>
+                        <CaptainProfileDialog brgyId={barangay.id} currentCycle={barangay.currentCycle} canEdit={canWrite}>
                             <Button variant="outline"><User className="mr-2"/>Captain Profile</Button>
                         </CaptainProfileDialog>
                          <GenerateProfilesDialog barangay={barangay} canGenerate={canWrite} />
@@ -176,21 +182,21 @@ export default function BarangayDetailPage() {
                     <div className="flex items-center gap-2">
                         <Vote className="w-5 h-5 text-muted-foreground" />
                         <div>
-                            <p className="font-semibold">{barangay.votingPopulation.toLocaleString()}</p>
+                            <p className="font-semibold">{(barangay.currentStats?.votingPopulation ?? 0).toLocaleString()}</p>
                             <p className="text-muted-foreground">Voting Population</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <Users className="w-5 h-5 text-muted-foreground" />
                         <div>
-                            <p className="font-semibold">{barangay.rsrVotes.toLocaleString()}</p>
+                            <p className="font-semibold">{(barangay.currentStats?.rsrVotes ?? 0).toLocaleString()}</p>
                             <p className="text-muted-foreground">RSR Votes</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <HandCoins className="w-5 h-5 text-muted-foreground" />
                         <div>
-                            <p className="font-semibold">{barangay.favoredVotePct.toFixed(1)}%</p>
+                            <p className="font-semibold">{(barangay.currentStats?.favoredVotePct ?? 0).toFixed(1)}%</p>
                             <p className="text-muted-foreground">RSR Vote %</p>
                         </div>
                     </div>
