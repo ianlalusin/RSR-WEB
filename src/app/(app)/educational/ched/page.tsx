@@ -45,6 +45,7 @@ function buildApplicationsWorkbook(items: ScholarshipApplicationListItem[]): XLS
     'Course': a.course,
     'Year Level': a.yearLevel,
     'Expected Graduation Year': a.expectedGraduationYear,
+    'Proof of Residency': a.proofOfResidency?.storagePath ? 'Uploaded' : 'Missing',
     'Shortlisted': a.isShortlisted ? 'YES' : 'NO',
     'Shortlist Reason': a.shortlistReason ?? '',
   }));

@@ -1,7 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ref as storageRef, uploadBytes } from 'firebase/storage';
+import { storage } from '@/lib/firebase';
+import { compressImageToBlob } from '@/lib/image-compress';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -94,6 +97,20 @@ export default function ScholarshipApplyPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofError, setProofError] = useState<string | null>(null);
+  const proofInputRef = useRef<HTMLInputElement>(null);
+
+  const handleProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    if (file && !file.type.startsWith('image/')) {
+      setProofFile(null);
+      setProofError('Please upload an image (photo or scan) of the ID.');
+      return;
+    }
+    setProofError(null);
+    setProofFile(file);
+  };
 
   const form = useForm<FormValues>({
     resolver: zodResolver(clientSchema),
@@ -165,9 +182,32 @@ export default function ScholarshipApplyPage() {
   };
 
   async function onSubmit(values: FormValues) {
+    if (!proofFile) {
+      setProofError('Proof of residency (government-issued ID) is required.');
+      toast({
+        variant: 'destructive',
+        title: 'Proof of residency required',
+        description: 'Please upload a government-issued ID of the student or guardian.',
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const result = await submitScholarshipApplication(values);
+      // Compress the ID image and upload it to a public-create-only Storage path
+      // BEFORE writing the application. Only the resulting path reaches the server.
+      const blob = await compressImageToBlob(proofFile);
+      const path = `scholarshipProofs/${crypto.randomUUID()}/${Date.now()}.jpg`;
+      await uploadBytes(storageRef(storage, path), blob, { contentType: 'image/jpeg' });
+
+      const result = await submitScholarshipApplication({
+        ...values,
+        proofOfResidency: {
+          storagePath: path,
+          fileName: proofFile.name,
+          contentType: 'image/jpeg',
+        },
+      });
       if (!result.success) {
         toast({
           variant: 'destructive',
@@ -624,10 +664,46 @@ export default function ScholarshipApplyPage() {
             </CardContent>
           </Card>
 
-          {/* 5. Data Privacy Consent */}
+          {/* 5. Proof of Residency */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">5. Data Privacy Consent</CardTitle>
+              <CardTitle className="text-lg">5. Proof of Residency</CardTitle>
+              <CardDescription>
+                Upload a clear photo or scan of a government-issued ID of the student or the
+                guardian (e.g., PhilSys/National ID, driver&apos;s license, passport, postal ID).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                <FormLabel htmlFor="proof-of-residency">
+                  Government-issued ID <span className="text-destructive">*</span>
+                </FormLabel>
+                <Input
+                  id="proof-of-residency"
+                  ref={proofInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleProofChange}
+                  className="cursor-pointer"
+                />
+                {proofFile && !proofError && (
+                  <p className="text-sm text-muted-foreground">
+                    Selected: <span className="font-medium break-all">{proofFile.name}</span>
+                  </p>
+                )}
+                {proofError && <p className="text-sm font-medium text-destructive">{proofError}</p>}
+                <p className="text-xs text-muted-foreground">
+                  Image only. The photo is automatically compressed to ≤1 MB before upload.
+                  Make sure the ID and address are clearly readable.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 6. Data Privacy Consent */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">6. Data Privacy Consent</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert

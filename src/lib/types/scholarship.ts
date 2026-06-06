@@ -18,6 +18,15 @@ export type ScholarshipYearLevel =
   | '5th Year'
   | 'Graduating';
 
+export interface ScholarshipProof {
+  /** Firebase Storage path under scholarshipProofs/ (admins resolve to a URL on demand). */
+  storagePath: string;
+  /** Original file name chosen by the applicant (for display only). */
+  fileName: string;
+  /** Stored content type (images are normalized to image/jpeg after compression). */
+  contentType: string;
+}
+
 export interface ScholarshipApplication {
   id: string;
   referenceNo: string;
@@ -52,6 +61,9 @@ export interface ScholarshipApplication {
   courseOther?: string;
   yearLevel: ScholarshipYearLevel;
   expectedGraduationYear: number;
+
+  // Proof of residency — government-issued ID of the student or guardian.
+  proofOfResidency?: ScholarshipProof | null;
 
   // Consent
   consentGiven: boolean;

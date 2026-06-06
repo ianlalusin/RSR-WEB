@@ -1024,6 +1024,16 @@ const scholarshipApplicationSchema = z.object({
     yearLevel: z.enum(YEAR_LEVEL_VALUES as [ScholarshipYearLevel, ...ScholarshipYearLevel[]]),
     expectedGraduationYear: z.coerce.number().int().min(2026).max(2035),
 
+    // Proof of residency — the file is uploaded to Storage client-side; only the
+    // resulting Storage path + light metadata reach the server.
+    proofOfResidency: z.object({
+        storagePath: z.string().trim().min(1).max(500).startsWith('scholarshipProofs/', {
+            message: 'Invalid proof-of-residency upload.',
+        }),
+        fileName: z.string().trim().max(255).optional().default(''),
+        contentType: z.string().trim().max(100).optional().default('image/jpeg'),
+    }, { errorMap: () => ({ message: 'Proof of residency (government-issued ID) is required.' }) }),
+
     consentGiven: z.literal(true, { errorMap: () => ({ message: 'You must give your consent to submit.' }) }),
 }).superRefine((data, ctx) => {
     if (data.school === OTHER_SCHOOL_VALUE && !data.schoolOther) {
@@ -1118,6 +1128,12 @@ export async function submitScholarshipApplication(input: unknown) {
             courseOther: resolvedCourse.course === OTHER_COURSE_VALUE ? (resolvedCourse.courseOther ?? '') : '',
             yearLevel: data.yearLevel,
             expectedGraduationYear: data.expectedGraduationYear,
+
+            proofOfResidency: {
+                storagePath: data.proofOfResidency.storagePath,
+                fileName: data.proofOfResidency.fileName ?? '',
+                contentType: data.proofOfResidency.contentType ?? 'image/jpeg',
+            },
 
             consentGiven: true,
 
@@ -1220,6 +1236,13 @@ export async function getScholarshipApplications(actorToken: ActorToken): Promis
                 courseOther: raw.courseOther ?? '',
                 yearLevel: raw.yearLevel,
                 expectedGraduationYear: raw.expectedGraduationYear,
+                proofOfResidency: raw.proofOfResidency
+                    ? {
+                          storagePath: raw.proofOfResidency.storagePath ?? '',
+                          fileName: raw.proofOfResidency.fileName ?? '',
+                          contentType: raw.proofOfResidency.contentType ?? 'image/jpeg',
+                      }
+                    : null,
                 consentGiven: raw.consentGiven === true,
                 isShortlisted: raw.isShortlisted === true,
                 shortlistReason: raw.shortlistReason ?? '',
@@ -1288,7 +1311,7 @@ export async function exportScholarshipApplicationsCSV(
             'Home Address', 'City/Municipality', 'Province', 'Postal Code', 'Mobile', 'Email',
             'Parent/Guardian', 'Relationship', 'Parent Contact', 'Income Bracket',
             'School', 'Course', 'Year Level', 'Expected Graduation Year',
-            'Shortlisted', 'Shortlist Reason',
+            'Proof of Residency', 'Shortlisted', 'Shortlist Reason',
         ];
 
         const lines: string[] = [header.map(csvCell).join(',')];
@@ -1300,6 +1323,7 @@ export async function exportScholarshipApplicationsCSV(
                 r.homeAddress, r.city, r.province, r.postalCode ?? '', r.mobile, r.email,
                 r.parentName, r.parentRelationship, r.parentContact, r.incomeBracket,
                 r.school, r.course, r.yearLevel, r.expectedGraduationYear,
+                r.proofOfResidency?.storagePath ? 'Uploaded' : 'Missing',
                 r.isShortlisted ? 'YES' : 'NO', r.shortlistReason ?? '',
             ].map(csvCell).join(','));
         }

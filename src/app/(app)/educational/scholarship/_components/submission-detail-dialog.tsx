@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { ref as storageRef, getDownloadURL } from 'firebase/storage';
 import {
   Dialog,
   DialogContent,
@@ -9,10 +10,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { ExternalLink, Loader2 } from 'lucide-react';
 import { format, isValid, parseISO } from 'date-fns';
 import { useAuth } from '@/components/providers/auth-provider';
+import { storage } from '@/lib/firebase';
 import { logScholarshipApplicationView, type ScholarshipApplicationListItem } from '@/app/actions';
 
 interface Props {
@@ -38,6 +42,9 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 
 export default function SubmissionDetailDialog({ application, open, onOpenChange }: Props) {
   const { user } = useAuth();
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [proofLoading, setProofLoading] = useState(false);
+  const [proofError, setProofError] = useState<string | null>(null);
 
   // Fire-and-forget audit log when a detail dialog opens.
   useEffect(() => {
@@ -56,6 +63,34 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
       cancelled = true;
     };
   }, [open, application, user]);
+
+  // Resolve the proof-of-residency image to a download URL (staff are
+  // authenticated, so Storage read rules allow it).
+  useEffect(() => {
+    const path = application?.proofOfResidency?.storagePath;
+    if (!open || !path) {
+      setProofUrl(null);
+      setProofError(null);
+      setProofLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setProofLoading(true);
+    setProofError(null);
+    (async () => {
+      try {
+        const url = await getDownloadURL(storageRef(storage, path));
+        if (!cancelled) setProofUrl(url);
+      } catch {
+        if (!cancelled) setProofError('Could not load the uploaded ID.');
+      } finally {
+        if (!cancelled) setProofLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, application]);
 
   if (!application) return null;
   const a = application;
@@ -148,6 +183,44 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
                 <Field label="Year Level" value={a.yearLevel} />
                 <Field label="Expected Graduation Year" value={a.expectedGraduationYear} />
               </div>
+            </section>
+
+            <Separator />
+
+            <section>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide" style={{ color: '#00A8E8' }}>
+                Proof of Residency
+              </h3>
+              {a.proofOfResidency?.storagePath ? (
+                <div className="space-y-3">
+                  {proofLoading && (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Loading uploaded ID…
+                    </p>
+                  )}
+                  {proofError && <p className="text-sm text-destructive">{proofError}</p>}
+                  {proofUrl && (
+                    <>
+                      <a href={proofUrl} target="_blank" rel="noopener noreferrer" className="block w-fit">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={proofUrl}
+                          alt="Government-issued ID"
+                          className="max-h-72 rounded-md border object-contain"
+                        />
+                      </a>
+                      <Button asChild variant="outline" size="sm">
+                        <a href={proofUrl} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="mr-2 h-4 w-4" />
+                          Open / Download ID
+                        </a>
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Not provided.</p>
+              )}
             </section>
 
             <Separator />

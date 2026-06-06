@@ -10,6 +10,17 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
     }
 
+    // Scholarship "proof of residency" — government-issued ID images uploaded
+    // from the PUBLIC (unauthenticated) scholarship registration form. Create is
+    // open but tightly constrained (image only, <2MB; the client compresses to
+    // ≤1MB). Reads are restricted to authenticated staff who review the
+    // applications, so IDs are never publicly readable. No update/delete.
+    match /scholarshipProofs/{path=**} {
+      allow read: if request.auth != null;
+      allow create: if request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
     // Default deny everything else
     match /{path=**} {
       allow read, write: if false;
