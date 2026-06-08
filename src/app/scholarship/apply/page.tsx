@@ -27,6 +27,7 @@ import {
   isLipaCity,
 } from '@/lib/scholarship-schools';
 import { submitScholarshipApplication, getLipaCityBarangays } from '@/app/actions';
+import { BATANGAS_LGUS } from '@/lib/batangas-lgus';
 
 const SEX_OPTIONS = ['Male', 'Female', 'Prefer not to say'] as const;
 const CIVIL_STATUS_OPTIONS = ['Single', 'Married', 'Widowed', 'Separated'] as const;
@@ -61,10 +62,9 @@ const clientSchema = z
     civilStatus: z.enum(CIVIL_STATUS_OPTIONS, { errorMap: () => ({ message: 'Please select.' }) }),
 
     homeAddress: z.string().trim().min(1, 'Home address is required.'),
-    city: z.string().trim().min(1, 'City/Municipality is required.'),
-    barangay: z.string().trim().optional().default(''),
     province: z.string().trim().min(1, 'Province is required.'),
-    postalCode: z.string().trim().optional().default(''),
+    city: z.string().trim().min(1, 'Please select your city/municipality.'),
+    barangay: z.string().trim().optional().default(''),
     mobile: z.string().trim().min(1, 'Mobile number is required.'),
     email: z.string().trim().email('A valid email is required.'),
 
@@ -134,10 +134,9 @@ export default function ScholarshipApplyPage() {
       sex: undefined as unknown as FormValues['sex'],
       civilStatus: undefined as unknown as FormValues['civilStatus'],
       homeAddress: '',
+      province: 'Batangas',
       city: '',
       barangay: '',
-      province: 'Batangas',
-      postalCode: '',
       mobile: '',
       email: '',
       parentName: '',
@@ -409,16 +408,34 @@ export default function ScholarshipApplyPage() {
               />
               <FormField
                 control={form.control}
+                name="province"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Province <span className="text-destructive">*</span></FormLabel>
+                    <FormControl>
+                      <Input {...field} readOnly disabled className="bg-muted" />
+                    </FormControl>
+                    <FormDescription>This program is for Batangas residents.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
                 name="city"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>City / Municipality <span className="text-destructive">*</span></FormLabel>
-                    <FormControl>
-                      <Input {...field} list="city-suggestions" autoComplete="off" />
-                    </FormControl>
-                    <datalist id="city-suggestions">
-                      <option value="Lipa City" />
-                    </datalist>
+                    <Select onValueChange={field.onChange} value={field.value || undefined}>
+                      <FormControl>
+                        <SelectTrigger><SelectValue placeholder="Select city / municipality" /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent className="max-h-72">
+                        {BATANGAS_LGUS.map((c) => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -450,28 +467,6 @@ export default function ScholarshipApplyPage() {
                 />
               )}
 
-              <FormField
-                control={form.control}
-                name="province"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Province <span className="text-destructive">*</span></FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="postalCode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Postal Code</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
               <FormField
                 control={form.control}
                 name="mobile"

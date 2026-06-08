@@ -169,9 +169,12 @@ export function resolveCourseInput(
 /** The priority locality for the Recto/CHED Tulong Dunong program. */
 export const PRIORITY_CITY = 'Lipa City';
 
-/** True when the given city is the priority locality (Lipa City), case-insensitive. */
+/**
+ * True when the given city is the priority locality, case-insensitive.
+ * Treats "Lipa" and "Lipa City" (and "lipa  city") as the same.
+ */
 export function isLipaCity(city?: string | null): boolean {
-  return (city ?? '').trim().toLowerCase() === PRIORITY_CITY.toLowerCase();
+  return /^lipa(\s+city)?$/.test((city ?? '').trim().toLowerCase());
 }
 
 export interface PriorityBreakdown {
