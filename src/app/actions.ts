@@ -15,7 +15,7 @@ import type {
   ScholarshipIncomeBracket,
   ScholarshipYearLevel,
 } from '@/lib/types/scholarship';
-import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
+import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, computePriorityScore, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
 import { canViewPage, canDo } from '@/lib/access';
 import { logAudit } from '@/lib/audit';
 import { assertActor, type VerifiedActor } from '@/lib/server-auth';
@@ -982,6 +982,32 @@ export async function deleteTask(id: string, actorToken: ActorToken) {
 // Scholarship — Recto Tulong Dunong
 // ============================================================================
 
+/**
+ * PUBLIC — returns the barangay names from the office's `lists/barangays` doc
+ * for the public scholarship form's Lipa City dropdown. The office's barangay
+ * list currently *is* Lipa City's barangays, so all names are returned (the
+ * districtName labels are placeholders, not localities). Names only — no
+ * population/electoral fields are exposed. Read via Admin SDK (the public form
+ * is unauthenticated and cannot read `lists` directly).
+ */
+export async function getLipaCityBarangays(): Promise<
+    { success: true; barangays: string[] } | { success: false; error: string }
+> {
+    try {
+        const snap = await adminDb.collection('lists').doc('barangays').get();
+        if (!snap.exists) return { success: true, barangays: [] };
+        const data = snap.data() as { barangays?: Record<string, { name?: string }> } | undefined;
+        const names = Object.values(data?.barangays ?? {})
+            .map((b) => (b?.name ?? '').trim())
+            .filter((n) => n.length > 0);
+        const unique = Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+        return { success: true, barangays: unique };
+    } catch (error: any) {
+        console.error('getLipaCityBarangays error:', error);
+        return { success: false, error: error?.message ?? 'Failed to load barangays.' };
+    }
+}
+
 const SEX_VALUES: ScholarshipSex[] = ['Male', 'Female', 'Prefer not to say'];
 const CIVIL_STATUS_VALUES: ScholarshipCivilStatus[] = ['Single', 'Married', 'Widowed', 'Separated'];
 const RELATIONSHIP_VALUES: ScholarshipRelationship[] = ['Mother', 'Father', 'Guardian', 'Sibling', 'Spouse', 'Other'];
@@ -1034,6 +1060,13 @@ const scholarshipApplicationSchema = z.object({
         contentType: z.string().trim().max(100).optional().default('image/jpeg'),
     }, { errorMap: () => ({ message: 'Proof of residency (government-issued ID) is required.' }) }),
 
+    // Barangay — only meaningful when city is Lipa City; '' otherwise.
+    barangay: z.string().trim().max(100).optional().default(''),
+
+    // Other scholarship grant.
+    hasOtherScholarship: z.boolean(),
+    otherScholarshipDetails: z.string().trim().max(500).optional().default(''),
+
     consentGiven: z.literal(true, { errorMap: () => ({ message: 'You must give your consent to submit.' }) }),
 }).superRefine((data, ctx) => {
     if (data.school === OTHER_SCHOOL_VALUE && !data.schoolOther) {
@@ -1041,6 +1074,9 @@ const scholarshipApplicationSchema = z.object({
     }
     if (data.course === OTHER_COURSE_VALUE && !data.courseOther) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['courseOther'], message: 'Please specify your course.' });
+    }
+    if (data.hasOtherScholarship && !data.otherScholarshipDetails) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['otherScholarshipDetails'], message: 'Please specify the other scholarship grant.' });
     }
 });
 
@@ -1100,6 +1136,13 @@ export async function submitScholarshipApplication(input: unknown) {
             ? (resolvedCourse.courseOther || 'Other')
             : resolvedCourse.course;
 
+        const priority = computePriorityScore({
+            isShortlisted: shortlist.isShortlisted,
+            city: data.city,
+            hasProof: !!data.proofOfResidency?.storagePath,
+            hasOtherScholarship: data.hasOtherScholarship,
+        });
+
         const record = {
             referenceNo,
             lastName: data.lastName,
@@ -1134,6 +1177,11 @@ export async function submitScholarshipApplication(input: unknown) {
                 fileName: data.proofOfResidency.fileName ?? '',
                 contentType: data.proofOfResidency.contentType ?? 'image/jpeg',
             },
+
+            barangay: data.barangay ?? '',
+            hasOtherScholarship: data.hasOtherScholarship,
+            otherScholarshipDetails: data.hasOtherScholarship ? (data.otherScholarshipDetails ?? '') : '',
+            priorityScore: priority.score,
 
             consentGiven: true,
 
@@ -1243,6 +1291,17 @@ export async function getScholarshipApplications(actorToken: ActorToken): Promis
                           contentType: raw.proofOfResidency.contentType ?? 'image/jpeg',
                       }
                     : null,
+                barangay: raw.barangay ?? '',
+                hasOtherScholarship: typeof raw.hasOtherScholarship === 'boolean' ? raw.hasOtherScholarship : undefined,
+                otherScholarshipDetails: raw.otherScholarshipDetails ?? '',
+                priorityScore: typeof raw.priorityScore === 'number'
+                    ? raw.priorityScore
+                    : computePriorityScore({
+                          isShortlisted: raw.isShortlisted === true,
+                          city: raw.city,
+                          hasProof: !!raw.proofOfResidency?.storagePath,
+                          hasOtherScholarship: typeof raw.hasOtherScholarship === 'boolean' ? raw.hasOtherScholarship : undefined,
+                      }).score,
                 consentGiven: raw.consentGiven === true,
                 isShortlisted: raw.isShortlisted === true,
                 shortlistReason: raw.shortlistReason ?? '',
@@ -1308,23 +1367,34 @@ export async function exportScholarshipApplicationsCSV(
         const header = [
             'Date Submitted', 'Reference No.', 'Last Name', 'First Name', 'Middle Name', 'Suffix',
             'Date of Birth', 'Sex', 'Civil Status',
-            'Home Address', 'City/Municipality', 'Province', 'Postal Code', 'Mobile', 'Email',
+            'Home Address', 'Barangay', 'City/Municipality', 'Province', 'Postal Code', 'Mobile', 'Email',
             'Parent/Guardian', 'Relationship', 'Parent Contact', 'Income Bracket',
+            'Other Scholarship Grant', 'Other Grant Details',
             'School', 'Course', 'Year Level', 'Expected Graduation Year',
-            'Proof of Residency', 'Shortlisted', 'Shortlist Reason',
+            'Proof of Residency', 'Priority Score', 'Shortlisted', 'Shortlist Reason',
         ];
 
         const lines: string[] = [header.map(csvCell).join(',')];
         for (const r of rows) {
             const submittedIso = serializeTimestamp(r.createdAt) ?? '';
+            const otherGrant = r.hasOtherScholarship === true ? 'Yes' : r.hasOtherScholarship === false ? 'No' : '';
+            const priorityScore = typeof r.priorityScore === 'number'
+                ? r.priorityScore
+                : computePriorityScore({
+                      isShortlisted: r.isShortlisted === true,
+                      city: r.city,
+                      hasProof: !!r.proofOfResidency?.storagePath,
+                      hasOtherScholarship: typeof r.hasOtherScholarship === 'boolean' ? r.hasOtherScholarship : undefined,
+                  }).score;
             lines.push([
                 submittedIso, r.referenceNo, r.lastName, r.firstName, r.middleName ?? '', r.suffix ?? '',
                 r.dateOfBirth, r.sex, r.civilStatus,
-                r.homeAddress, r.city, r.province, r.postalCode ?? '', r.mobile, r.email,
+                r.homeAddress, r.barangay ?? '', r.city, r.province, r.postalCode ?? '', r.mobile, r.email,
                 r.parentName, r.parentRelationship, r.parentContact, r.incomeBracket,
+                otherGrant, r.otherScholarshipDetails ?? '',
                 r.school, r.course, r.yearLevel, r.expectedGraduationYear,
                 r.proofOfResidency?.storagePath ? 'Uploaded' : 'Missing',
-                r.isShortlisted ? 'YES' : 'NO', r.shortlistReason ?? '',
+                priorityScore, r.isShortlisted ? 'YES' : 'NO', r.shortlistReason ?? '',
             ].map(csvCell).join(','));
         }
 

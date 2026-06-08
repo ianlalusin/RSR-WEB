@@ -17,6 +17,7 @@ import { ExternalLink, Loader2 } from 'lucide-react';
 import { format, isValid, parseISO } from 'date-fns';
 import { useAuth } from '@/components/providers/auth-provider';
 import { storage } from '@/lib/firebase';
+import { computePriorityScore } from '@/lib/scholarship-schools';
 import { logScholarshipApplicationView, type ScholarshipApplicationListItem } from '@/app/actions';
 
 interface Props {
@@ -95,6 +96,15 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
   if (!application) return null;
   const a = application;
   const fullName = [a.lastName, a.firstName, a.middleName, a.suffix].filter(Boolean).join(', ').replace(/, ,/g, ',');
+  const priority = computePriorityScore({
+    isShortlisted: a.isShortlisted,
+    city: a.city,
+    hasProof: !!a.proofOfResidency?.storagePath,
+    hasOtherScholarship: a.hasOtherScholarship,
+  });
+  const priorityScore = a.priorityScore ?? priority.score;
+  const otherGrantLabel =
+    a.hasOtherScholarship === true ? 'Yes' : a.hasOtherScholarship === false ? 'No' : '—';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -119,10 +129,24 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
           <div className="space-y-6 pb-2">
             <section>
               <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide" style={{ color: '#00A8E8' }}>
-                Shortlisting
+                Priority &amp; Shortlisting
               </h3>
+              <div className="mb-3 flex items-center gap-2">
+                <Badge
+                  className={priorityScore >= 3 ? 'bg-green-600 text-white hover:bg-green-700' : undefined}
+                  variant={priorityScore >= 3 ? 'default' : 'secondary'}
+                >
+                  Priority {priorityScore}/4
+                </Badge>
+              </div>
+              <ul className="mb-3 grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
+                <li>{priority.breakdown.shortlisted ? '✓' : '—'} School &amp; course on the list</li>
+                <li>{priority.breakdown.lipaCity ? '✓' : '—'} Resident of Lipa City</li>
+                <li>{priority.breakdown.idUploaded ? '✓' : '—'} Government ID uploaded</li>
+                <li>{priority.breakdown.noOtherScholarship ? '✓' : '—'} No other scholarship grant</li>
+              </ul>
               <Field
-                label="Reason"
+                label="Shortlist Reason"
                 value={a.shortlistReason || (a.isShortlisted ? 'Matched the qualified list.' : 'Not shortlisted.')}
               />
             </section>
@@ -149,6 +173,7 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
               </h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Home Address" value={a.homeAddress} />
+                <Field label="Barangay" value={a.barangay} />
                 <Field label="City / Municipality" value={a.city} />
                 <Field label="Province" value={a.province} />
                 <Field label="Postal Code" value={a.postalCode} />
@@ -182,6 +207,10 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
                 <Field label="Course" value={a.course} />
                 <Field label="Year Level" value={a.yearLevel} />
                 <Field label="Expected Graduation Year" value={a.expectedGraduationYear} />
+                <Field label="Other Scholarship Grant" value={otherGrantLabel} />
+                {a.hasOtherScholarship === true && (
+                  <Field label="Other Grant Details" value={a.otherScholarshipDetails} />
+                )}
               </div>
             </section>
 

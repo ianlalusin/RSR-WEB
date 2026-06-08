@@ -65,6 +65,16 @@ export interface ScholarshipApplication {
   // Proof of residency — government-issued ID of the student or guardian.
   proofOfResidency?: ScholarshipProof | null;
 
+  // Barangay — only captured (via dropdown) when the city is Lipa City.
+  barangay?: string;
+
+  // Other scholarship grant — beneficiary of any existing grant?
+  hasOtherScholarship?: boolean;
+  otherScholarshipDetails?: string;
+
+  // Priority score (0–4), computed at submit. See computePriorityScore.
+  priorityScore?: number;
+
   // Consent
   consentGiven: boolean;
 

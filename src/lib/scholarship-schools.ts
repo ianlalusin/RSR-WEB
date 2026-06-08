@@ -165,3 +165,53 @@ export function resolveCourseInput(
   }
   return { course: OTHER_COURSE_VALUE, courseOther: typed, routedBack: false };
 }
+
+/** The priority locality for the Recto/CHED Tulong Dunong program. */
+export const PRIORITY_CITY = 'Lipa City';
+
+/** True when the given city is the priority locality (Lipa City), case-insensitive. */
+export function isLipaCity(city?: string | null): boolean {
+  return (city ?? '').trim().toLowerCase() === PRIORITY_CITY.toLowerCase();
+}
+
+export interface PriorityBreakdown {
+  shortlisted: boolean;
+  lipaCity: boolean;
+  idUploaded: boolean;
+  noOtherScholarship: boolean;
+}
+
+export interface PriorityResult {
+  score: number; // 0–4
+  breakdown: PriorityBreakdown;
+}
+
+/**
+ * Priority score (0–4) for ranking applicants. One point each for:
+ *  - school AND course on the official list (isShortlisted),
+ *  - residing in Lipa City,
+ *  - a government-issued ID uploaded (proof of residency),
+ *  - NOT being a beneficiary of another scholarship grant.
+ *
+ * `hasOtherScholarship === undefined` (older records that predate the field)
+ * scores 0 for the last factor.
+ */
+export function computePriorityScore(input: {
+  isShortlisted: boolean;
+  city?: string | null;
+  hasProof: boolean;
+  hasOtherScholarship?: boolean;
+}): PriorityResult {
+  const breakdown: PriorityBreakdown = {
+    shortlisted: input.isShortlisted === true,
+    lipaCity: isLipaCity(input.city),
+    idUploaded: input.hasProof === true,
+    noOtherScholarship: input.hasOtherScholarship === false,
+  };
+  const score =
+    (breakdown.shortlisted ? 1 : 0) +
+    (breakdown.lipaCity ? 1 : 0) +
+    (breakdown.idUploaded ? 1 : 0) +
+    (breakdown.noOtherScholarship ? 1 : 0);
+  return { score, breakdown };
+}

@@ -63,6 +63,26 @@ export const columns: ColumnDef<ScholarshipApplicationListItem>[] = [
     header: 'Year Level',
   },
   {
+    accessorKey: 'priorityScore',
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}>
+        Priority <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+    cell: ({ row }) => {
+      const score = row.original.priorityScore ?? 0;
+      return (
+        <Badge
+          variant={score >= 3 ? 'default' : 'secondary'}
+          className={score >= 3 ? 'bg-green-600 text-white hover:bg-green-700' : undefined}
+        >
+          {score}/4
+        </Badge>
+      );
+    },
+    sortingFn: (a, b) => (a.original.priorityScore ?? 0) - (b.original.priorityScore ?? 0),
+  },
+  {
     accessorKey: 'isShortlisted',
     header: 'Shortlisted',
     cell: ({ row }) =>

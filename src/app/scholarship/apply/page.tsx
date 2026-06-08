@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ref as storageRef, uploadBytes } from 'firebase/storage';
 import { storage } from '@/lib/firebase';
@@ -24,8 +24,9 @@ import {
   OTHER_SCHOOL_VALUE,
   OTHER_COURSE_VALUE,
   findSchool,
+  isLipaCity,
 } from '@/lib/scholarship-schools';
-import { submitScholarshipApplication } from '@/app/actions';
+import { submitScholarshipApplication, getLipaCityBarangays } from '@/app/actions';
 
 const SEX_OPTIONS = ['Male', 'Female', 'Prefer not to say'] as const;
 const CIVIL_STATUS_OPTIONS = ['Single', 'Married', 'Widowed', 'Separated'] as const;
@@ -61,6 +62,7 @@ const clientSchema = z
 
     homeAddress: z.string().trim().min(1, 'Home address is required.'),
     city: z.string().trim().min(1, 'City/Municipality is required.'),
+    barangay: z.string().trim().optional().default(''),
     province: z.string().trim().min(1, 'Province is required.'),
     postalCode: z.string().trim().optional().default(''),
     mobile: z.string().trim().min(1, 'Mobile number is required.'),
@@ -78,6 +80,9 @@ const clientSchema = z
     yearLevel: z.enum(YEAR_LEVELS, { errorMap: () => ({ message: 'Please select.' }) }),
     expectedGraduationYear: z.coerce.number().int().min(2026).max(2035),
 
+    hasOtherScholarship: z.enum(['Yes', 'No'], { errorMap: () => ({ message: 'Please select.' }) }),
+    otherScholarshipDetails: z.string().trim().optional().default(''),
+
     consentGiven: z
       .boolean()
       .refine((v) => v === true, { message: 'You must give your consent to submit.' }),
@@ -88,6 +93,12 @@ const clientSchema = z
     }
     if (data.course === OTHER_COURSE_VALUE && !data.courseOther) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['courseOther'], message: 'Please specify your course.' });
+    }
+    if (isLipaCity(data.city) && !data.barangay) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['barangay'], message: 'Please select your barangay.' });
+    }
+    if (data.hasOtherScholarship === 'Yes' && !data.otherScholarshipDetails) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['otherScholarshipDetails'], message: 'Please specify the other scholarship grant.' });
     }
   });
 
@@ -124,6 +135,7 @@ export default function ScholarshipApplyPage() {
       civilStatus: undefined as unknown as FormValues['civilStatus'],
       homeAddress: '',
       city: '',
+      barangay: '',
       province: 'Batangas',
       postalCode: '',
       mobile: '',
@@ -138,6 +150,8 @@ export default function ScholarshipApplyPage() {
       courseOther: '',
       yearLevel: undefined as unknown as FormValues['yearLevel'],
       expectedGraduationYear: 2026,
+      hasOtherScholarship: undefined as unknown as FormValues['hasOtherScholarship'],
+      otherScholarshipDetails: '',
       consentGiven: false,
     },
   });
@@ -145,8 +159,34 @@ export default function ScholarshipApplyPage() {
   const watchedSchool = form.watch('school');
   const watchedSchoolOther = form.watch('schoolOther');
   const watchedCourse = form.watch('course');
+  const watchedCity = form.watch('city');
+  const watchedHasOtherScholarship = form.watch('hasOtherScholarship');
   const isOtherSchool = watchedSchool === OTHER_SCHOOL_VALUE;
   const isOtherCourse = watchedCourse === OTHER_COURSE_VALUE;
+  const cityIsLipa = isLipaCity(watchedCity);
+
+  // Lipa City barangays, fetched once from the office data via a server action.
+  const [lipaBarangays, setLipaBarangays] = useState<string[]>([]);
+  const [barangaysLoaded, setBarangaysLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!cityIsLipa || barangaysLoaded) return;
+    let cancelled = false;
+    (async () => {
+      const res = await getLipaCityBarangays();
+      if (cancelled) return;
+      if (res.success) setLipaBarangays(res.barangays);
+      setBarangaysLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cityIsLipa, barangaysLoaded]);
+
+  // Clear the barangay selection if the applicant moves away from Lipa City.
+  useEffect(() => {
+    if (!cityIsLipa) form.setValue('barangay', '');
+  }, [cityIsLipa, form]);
 
   const courseOptions: string[] = useMemo(() => {
     if (!watchedSchool || isOtherSchool) return [];
@@ -202,6 +242,10 @@ export default function ScholarshipApplyPage() {
 
       const result = await submitScholarshipApplication({
         ...values,
+        // Barangay only applies to Lipa City; convert the Yes/No answer to a boolean.
+        barangay: isLipaCity(values.city) ? values.barangay : '',
+        hasOtherScholarship: values.hasOtherScholarship === 'Yes',
+        otherScholarshipDetails: values.hasOtherScholarship === 'Yes' ? values.otherScholarshipDetails : '',
         proofOfResidency: {
           storagePath: path,
           fileName: proofFile.name,
@@ -369,11 +413,43 @@ export default function ScholarshipApplyPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>City / Municipality <span className="text-destructive">*</span></FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
+                    <FormControl>
+                      <Input {...field} list="city-suggestions" autoComplete="off" />
+                    </FormControl>
+                    <datalist id="city-suggestions">
+                      <option value="Lipa City" />
+                    </datalist>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
+              {cityIsLipa && (
+                <FormField
+                  control={form.control}
+                  name="barangay"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Barangay <span className="text-destructive">*</span></FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || undefined}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={barangaysLoaded ? 'Select barangay' : 'Loading barangays…'} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="max-h-72">
+                          {lipaBarangays.map((b) => (
+                            <SelectItem key={b} value={b}>{b}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>Select your barangay in Lipa City.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
               <FormField
                 control={form.control}
                 name="province"
@@ -661,6 +737,45 @@ export default function ScholarshipApplyPage() {
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="hasOtherScholarship"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>
+                      Are you a beneficiary of any other / existing scholarship grant?{' '}
+                      <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="No">No</SelectItem>
+                        <SelectItem value="Yes">Yes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {watchedHasOtherScholarship === 'Yes' && (
+                <FormField
+                  control={form.control}
+                  name="otherScholarshipDetails"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Please specify the scholarship grant <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Name of grant / sponsor and coverage" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
             </CardContent>
           </Card>
 
