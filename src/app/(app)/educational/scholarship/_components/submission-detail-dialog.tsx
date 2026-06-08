@@ -17,7 +17,7 @@ import { ExternalLink, Loader2 } from 'lucide-react';
 import { format, isValid, parseISO } from 'date-fns';
 import { useAuth } from '@/components/providers/auth-provider';
 import { storage } from '@/lib/firebase';
-import { computePriorityScore } from '@/lib/scholarship-schools';
+import { computePriorityScore, MAX_PRIORITY_SCORE, PRIORITY_HIGH_THRESHOLD } from '@/lib/scholarship-schools';
 import { logScholarshipApplicationView, type ScholarshipApplicationListItem } from '@/app/actions';
 
 interface Props {
@@ -101,8 +101,10 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
     city: a.city,
     hasProof: !!a.proofOfResidency?.storagePath,
     hasOtherScholarship: a.hasOtherScholarship,
+    yearLevel: a.yearLevel,
   });
   const priorityScore = a.priorityScore ?? priority.score;
+  const priorityHigh = priorityScore >= PRIORITY_HIGH_THRESHOLD;
   const otherGrantLabel =
     a.hasOtherScholarship === true ? 'Yes' : a.hasOtherScholarship === false ? 'No' : '—';
 
@@ -133,10 +135,10 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
               </h3>
               <div className="mb-3 flex items-center gap-2">
                 <Badge
-                  className={priorityScore >= 3 ? 'bg-green-600 text-white hover:bg-green-700' : undefined}
-                  variant={priorityScore >= 3 ? 'default' : 'secondary'}
+                  className={priorityHigh ? 'bg-green-600 text-white hover:bg-green-700' : undefined}
+                  variant={priorityHigh ? 'default' : 'secondary'}
                 >
-                  Priority {priorityScore}/4
+                  Priority {priorityScore}/{MAX_PRIORITY_SCORE}
                 </Badge>
               </div>
               <ul className="mb-3 grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
@@ -144,6 +146,10 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
                 <li>{priority.breakdown.lipaCity ? '✓' : '—'} Resident of Lipa City</li>
                 <li>{priority.breakdown.idUploaded ? '✓' : '—'} Government ID uploaded</li>
                 <li>{priority.breakdown.noOtherScholarship ? '✓' : '—'} No other scholarship grant</li>
+                <li className="sm:col-span-2">
+                  Year level: <span className="font-medium">+{priority.breakdown.yearLevelPoints}</span>
+                  {a.yearLevel ? ` (${a.yearLevel})` : ''}
+                </li>
               </ul>
               <Field
                 label="Shortlist Reason"

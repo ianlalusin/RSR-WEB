@@ -5,6 +5,7 @@ import { ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { format, isValid, parseISO } from 'date-fns';
+import { MAX_PRIORITY_SCORE, PRIORITY_HIGH_THRESHOLD } from '@/lib/scholarship-schools';
 import type { ScholarshipApplicationListItem } from '@/app/actions';
 
 function formatDate(iso: string | null): string {
@@ -71,12 +72,13 @@ export const columns: ColumnDef<ScholarshipApplicationListItem>[] = [
     ),
     cell: ({ row }) => {
       const score = row.original.priorityScore ?? 0;
+      const high = score >= PRIORITY_HIGH_THRESHOLD;
       return (
         <Badge
-          variant={score >= 3 ? 'default' : 'secondary'}
-          className={score >= 3 ? 'bg-green-600 text-white hover:bg-green-700' : undefined}
+          variant={high ? 'default' : 'secondary'}
+          className={high ? 'bg-green-600 text-white hover:bg-green-700' : undefined}
         >
-          {score}/4
+          {score}/{MAX_PRIORITY_SCORE}
         </Badge>
       );
     },

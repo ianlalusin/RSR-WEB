@@ -182,15 +182,39 @@ export function isLipaCity(city?: string | null): boolean {
   return /^lipa(\s+city)?$/.test((city ?? '').trim().toLowerCase());
 }
 
+/** Maximum possible priority score: 4 one-point factors + year-level (0–3). */
+export const MAX_PRIORITY_SCORE = 7;
+/** Score at/above which an applicant is highlighted as high-priority. */
+export const PRIORITY_HIGH_THRESHOLD = 5;
+
+/**
+ * Year-level priority points — earlier year level = higher priority (more
+ * remaining years of support). "Incoming 1st Year" is treated as 1st Year.
+ */
+export function yearLevelPriorityPoints(yearLevel?: string | null): number {
+  switch ((yearLevel ?? '').trim()) {
+    case 'Incoming 1st Year':
+    case '1st Year':
+      return 3;
+    case '2nd Year':
+      return 2;
+    case '3rd Year':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 export interface PriorityBreakdown {
   shortlisted: boolean;
   lipaCity: boolean;
   idUploaded: boolean;
   noOtherScholarship: boolean;
+  yearLevelPoints: number;
 }
 
 export interface PriorityResult {
-  score: number; // 0–4
+  score: number; // 0–7
   breakdown: PriorityBreakdown;
 }
 
@@ -209,6 +233,7 @@ export const DEFAULT_SCHOLARSHIP_FORM_CONFIG: ScholarshipFormConfig = {
   status: 'open',
   maxResponses: 0,
   closesAtMs: null,
+  suspended: false,
 };
 
 /**
@@ -222,28 +247,36 @@ export function computeFormStatus(
   nowMs: number,
 ): ScholarshipFormStatus {
   const c = config ?? DEFAULT_SCHOLARSHIP_FORM_CONFIG;
+  const suspended = c.suspended === true;
   let open = true;
   let reason = '';
-  switch (c.status) {
-    case 'closed':
-      open = false;
-      reason = 'Registration is currently closed.';
-      break;
-    case 'maxResponses':
-      open = c.maxResponses > 0 && responseCount < c.maxResponses;
-      if (!open) reason = 'The maximum number of applications has been reached.';
-      break;
-    case 'deadline':
-      open = c.closesAtMs != null && nowMs < c.closesAtMs;
-      if (!open) reason = 'The registration period has ended.';
-      break;
-    case 'open':
-    default:
-      open = true;
+  if (suspended) {
+    // Manual suspend overrides the configured rule.
+    open = false;
+    reason = 'Registration is temporarily paused. Please check back soon.';
+  } else {
+    switch (c.status) {
+      case 'closed':
+        open = false;
+        reason = 'Registration is currently closed.';
+        break;
+      case 'maxResponses':
+        open = c.maxResponses > 0 && responseCount < c.maxResponses;
+        if (!open) reason = 'The maximum number of applications has been reached.';
+        break;
+      case 'deadline':
+        open = c.closesAtMs != null && nowMs < c.closesAtMs;
+        if (!open) reason = 'The registration period has ended.';
+        break;
+      case 'open':
+      default:
+        open = true;
+    }
   }
   return {
     open,
     status: c.status,
+    suspended,
     reason,
     responseCount,
     maxResponses: c.status === 'maxResponses' ? c.maxResponses : null,
@@ -256,17 +289,21 @@ export function computePriorityScore(input: {
   city?: string | null;
   hasProof: boolean;
   hasOtherScholarship?: boolean;
+  yearLevel?: string | null;
 }): PriorityResult {
+  const yearLevelPoints = yearLevelPriorityPoints(input.yearLevel);
   const breakdown: PriorityBreakdown = {
     shortlisted: input.isShortlisted === true,
     lipaCity: isLipaCity(input.city),
     idUploaded: input.hasProof === true,
     noOtherScholarship: input.hasOtherScholarship === false,
+    yearLevelPoints,
   };
   const score =
     (breakdown.shortlisted ? 1 : 0) +
     (breakdown.lipaCity ? 1 : 0) +
     (breakdown.idUploaded ? 1 : 0) +
-    (breakdown.noOtherScholarship ? 1 : 0);
+    (breakdown.noOtherScholarship ? 1 : 0) +
+    yearLevelPoints;
   return { score, breakdown };
 }

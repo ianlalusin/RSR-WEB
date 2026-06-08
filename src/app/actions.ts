@@ -18,7 +18,7 @@ import type {
   ScholarshipFormStatus,
   ScholarshipFormStatusMode,
 } from '@/lib/types/scholarship';
-import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, computePriorityScore, computeFormStatus, DEFAULT_SCHOLARSHIP_FORM_CONFIG, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
+import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, computePriorityScore, yearLevelPriorityPoints, computeFormStatus, DEFAULT_SCHOLARSHIP_FORM_CONFIG, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
 import { canViewPage, canDo } from '@/lib/access';
 import { logAudit } from '@/lib/audit';
 import { assertActor, type VerifiedActor } from '@/lib/server-auth';
@@ -1026,6 +1026,7 @@ function normalizeFormConfig(raw: any): ScholarshipFormConfig {
         status,
         maxResponses: typeof raw?.maxResponses === 'number' ? raw.maxResponses : 0,
         closesAtMs: typeof raw?.closesAtMs === 'number' ? raw.closesAtMs : null,
+        suspended: raw?.suspended === true,
     };
 }
 
@@ -1106,6 +1107,35 @@ export async function updateScholarshipFormConfig(
         return { success: true, config };
     } catch (error: any) {
         return { success: false, error: error?.message ?? 'Failed to save form settings.' };
+    }
+}
+
+/** ADMIN — instantly pause or resume acceptance (manual override on top of the rule). */
+export async function setScholarshipFormSuspended(
+    suspended: boolean,
+    actorToken: ActorToken,
+): Promise<{ success: true } | { success: false; error: string }> {
+    try {
+        const actor = await resolveActor(actorToken);
+        assertCanViewScholarship(actor);
+        if (!actor.isPlatformAdmin && actor.profile && !canDo(actor.profile, 'scholarship_applications', 'update')) {
+            return { success: false, error: 'You do not have permission to change form settings.' };
+        }
+        await SCHOLARSHIP_CONFIG_DOC.set(
+            { suspended: !!suspended, updatedAt: FieldValue.serverTimestamp(), updatedByUid: actor.uid, updatedByEmail: actor.email },
+            { merge: true },
+        );
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'update',
+            entityType: 'system',
+            entityId: 'scholarshipFormConfig',
+            details: { suspended: !!suspended },
+        });
+        return { success: true };
+    } catch (error: any) {
+        return { success: false, error: error?.message ?? 'Failed to update suspension.' };
     }
 }
 
@@ -1267,6 +1297,7 @@ export async function submitScholarshipApplication(input: unknown) {
             city: data.city,
             hasProof: !!data.proofOfResidency?.storagePath,
             hasOtherScholarship: data.hasOtherScholarship,
+            yearLevel: data.yearLevel,
         });
 
         const record = {
@@ -1420,14 +1451,13 @@ export async function getScholarshipApplications(actorToken: ActorToken): Promis
                 barangay: raw.barangay ?? '',
                 hasOtherScholarship: typeof raw.hasOtherScholarship === 'boolean' ? raw.hasOtherScholarship : undefined,
                 otherScholarshipDetails: raw.otherScholarshipDetails ?? '',
-                priorityScore: typeof raw.priorityScore === 'number'
-                    ? raw.priorityScore
-                    : computePriorityScore({
-                          isShortlisted: raw.isShortlisted === true,
-                          city: raw.city,
-                          hasProof: !!raw.proofOfResidency?.storagePath,
-                          hasOtherScholarship: typeof raw.hasOtherScholarship === 'boolean' ? raw.hasOtherScholarship : undefined,
-                      }).score,
+                priorityScore: computePriorityScore({
+                    isShortlisted: raw.isShortlisted === true,
+                    city: raw.city,
+                    hasProof: !!raw.proofOfResidency?.storagePath,
+                    hasOtherScholarship: typeof raw.hasOtherScholarship === 'boolean' ? raw.hasOtherScholarship : undefined,
+                    yearLevel: raw.yearLevel,
+                }).score,
                 consentGiven: raw.consentGiven === true,
                 isShortlisted: raw.isShortlisted === true,
                 shortlistReason: raw.shortlistReason ?? '',
@@ -1497,21 +1527,20 @@ export async function exportScholarshipApplicationsCSV(
             'Parent/Guardian', 'Relationship', 'Parent Contact', 'Income Bracket',
             'Other Scholarship Grant', 'Other Grant Details',
             'School', 'Course', 'Year Level', 'Expected Graduation Year',
-            'Proof of Residency', 'Priority Score', 'Shortlisted', 'Shortlist Reason',
+            'Proof of Residency', 'Year Level Points', 'Priority Score', 'Shortlisted', 'Shortlist Reason',
         ];
 
         const lines: string[] = [header.map(csvCell).join(',')];
         for (const r of rows) {
             const submittedIso = serializeTimestamp(r.createdAt) ?? '';
             const otherGrant = r.hasOtherScholarship === true ? 'Yes' : r.hasOtherScholarship === false ? 'No' : '';
-            const priorityScore = typeof r.priorityScore === 'number'
-                ? r.priorityScore
-                : computePriorityScore({
-                      isShortlisted: r.isShortlisted === true,
-                      city: r.city,
-                      hasProof: !!r.proofOfResidency?.storagePath,
-                      hasOtherScholarship: typeof r.hasOtherScholarship === 'boolean' ? r.hasOtherScholarship : undefined,
-                  }).score;
+            const priorityScore = computePriorityScore({
+                isShortlisted: r.isShortlisted === true,
+                city: r.city,
+                hasProof: !!r.proofOfResidency?.storagePath,
+                hasOtherScholarship: typeof r.hasOtherScholarship === 'boolean' ? r.hasOtherScholarship : undefined,
+                yearLevel: r.yearLevel,
+            }).score;
             lines.push([
                 submittedIso, r.referenceNo, r.lastName, r.firstName, r.middleName ?? '', r.suffix ?? '',
                 r.dateOfBirth, r.sex, r.civilStatus,
@@ -1520,6 +1549,7 @@ export async function exportScholarshipApplicationsCSV(
                 otherGrant, r.otherScholarshipDetails ?? '',
                 r.school, r.course, r.yearLevel, r.expectedGraduationYear,
                 r.proofOfResidency?.storagePath ? 'Uploaded' : 'Missing',
+                yearLevelPriorityPoints(r.yearLevel),
                 priorityScore, r.isShortlisted ? 'YES' : 'NO', r.shortlistReason ?? '',
             ].map(csvCell).join(','));
         }

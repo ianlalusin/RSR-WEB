@@ -5,15 +5,16 @@ import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, Download, ExternalLink, GraduationCap, ListChecks, Settings, Users } from 'lucide-react';
+import { AlertTriangle, Download, ExternalLink, GraduationCap, ListChecks, PauseCircle, PlayCircle, Settings, Users } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage } from '@/lib/access';
 import { useToast } from '@/hooks/use-toast';
-import { computeFormStatus } from '@/lib/scholarship-schools';
+import { computeFormStatus, yearLevelPriorityPoints } from '@/lib/scholarship-schools';
 import type { ScholarshipFormConfig } from '@/lib/types/scholarship';
 import {
   getScholarshipApplications,
   getScholarshipFormConfig,
+  setScholarshipFormSuspended,
   type ScholarshipApplicationListItem,
 } from '@/app/actions';
 import { DataTable } from '../scholarship/data-table';
@@ -53,6 +54,7 @@ function buildApplicationsWorkbook(items: ScholarshipApplicationListItem[]): XLS
     'Year Level': a.yearLevel,
     'Expected Graduation Year': a.expectedGraduationYear,
     'Proof of Residency': a.proofOfResidency?.storagePath ? 'Uploaded' : 'Missing',
+    'Year Level Points': yearLevelPriorityPoints(a.yearLevel),
     'Priority Score': a.priorityScore ?? 0,
     'Shortlisted': a.isShortlisted ? 'YES' : 'NO',
     'Shortlist Reason': a.shortlistReason ?? '',
@@ -73,6 +75,7 @@ export default function CHEDTulongDunongPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [formConfig, setFormConfig] = useState<ScholarshipFormConfig | null>(null);
+  const [suspending, setSuspending] = useState(false);
 
   const canView = canViewPage(userProfile, 'scholarship_applications', { isPlatformAdminClaim });
 
@@ -86,6 +89,26 @@ export default function CHEDTulongDunongPage() {
       // non-blocking; banner just won't show
     }
   }, [user, canView]);
+
+  const toggleSuspend = useCallback(async () => {
+    if (!user) return;
+    const next = !(formConfig?.suspended ?? false);
+    setSuspending(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await setScholarshipFormSuspended(next, token);
+      if (!res.success) {
+        toast({ variant: 'destructive', title: 'Could not update', description: res.error });
+        return;
+      }
+      toast({ title: next ? 'Form acceptance paused' : 'Form acceptance resumed' });
+      await loadConfig();
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Could not update', description: err?.message });
+    } finally {
+      setSuspending(false);
+    }
+  }, [user, formConfig, toast, loadConfig]);
 
   const reload = useCallback(async () => {
     if (!user || !canView) return;
@@ -167,7 +190,22 @@ export default function CHEDTulongDunongPage() {
             Applications submitted through the public Tulong Dunong registration form.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {formConfig?.suspended ? (
+            <Button
+              onClick={toggleSuspend}
+              disabled={suspending}
+              className="bg-green-600 text-white hover:bg-green-700"
+            >
+              <PlayCircle className="mr-2 h-4 w-4" />
+              {suspending ? 'Resuming…' : 'Resume Acceptance'}
+            </Button>
+          ) : (
+            <Button variant="destructive" onClick={toggleSuspend} disabled={suspending}>
+              <PauseCircle className="mr-2 h-4 w-4" />
+              {suspending ? 'Suspending…' : 'Suspend Acceptance'}
+            </Button>
+          )}
           <Button variant="outline" onClick={() => setSettingsOpen(true)}>
             <Settings className="mr-2 h-4 w-4" />
             Form Settings
@@ -190,16 +228,17 @@ export default function CHEDTulongDunongPage() {
           }`}
         >
           <span className="font-semibold">
-            {formStatus.open ? 'Form is OPEN' : 'Form is CLOSED'}
+            {formStatus.suspended ? 'Form is PAUSED' : formStatus.open ? 'Form is OPEN' : 'Form is CLOSED'}
           </span>
           <span className="opacity-80">
-            {formStatus.status === 'maxResponses' &&
+            {formStatus.suspended && '· manually suspended'}
+            {!formStatus.suspended && formStatus.status === 'maxResponses' &&
               `· ${formStatus.responseCount}/${formStatus.maxResponses} responses`}
-            {formStatus.status === 'deadline' &&
+            {!formStatus.suspended && formStatus.status === 'deadline' &&
               formStatus.closesAtMs &&
               `· closes ${new Date(formStatus.closesAtMs).toLocaleString()}`}
-            {formStatus.status === 'closed' && '· manually closed'}
-            {formStatus.status === 'open' && '· no limit set'}
+            {!formStatus.suspended && formStatus.status === 'closed' && '· manually closed'}
+            {!formStatus.suspended && formStatus.status === 'open' && '· no limit set'}
           </span>
           {!formStatus.open && formStatus.reason && <span className="opacity-80">— {formStatus.reason}</span>}
         </div>

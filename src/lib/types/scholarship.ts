@@ -103,12 +103,16 @@ export interface ScholarshipFormConfig {
   maxResponses: number;
   /** Absolute close time (epoch ms) used when status === 'deadline'. */
   closesAtMs: number | null;
+  /** Manual override — when true, the form is paused regardless of the rule. */
+  suspended?: boolean;
 }
 
 /** Computed live status returned to the public form and the admin banner. */
 export interface ScholarshipFormStatus {
   open: boolean;
   status: ScholarshipFormStatusMode;
+  /** True when paused via the manual suspend override. */
+  suspended: boolean;
   /** Human-readable explanation when closed. */
   reason: string;
   responseCount: number;
