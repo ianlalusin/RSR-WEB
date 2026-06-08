@@ -237,7 +237,7 @@ export default function ScholarshipApplyPage() {
       // Compress the ID image and upload it to a public-create-only Storage path
       // BEFORE writing the application. Only the resulting path reaches the server.
       const blob = await compressImageToBlob(proofFile);
-      const path = `scholarshipProofs/${crypto.randomUUID()}/${Date.now()}.jpg`;
+      const path = `Tulong Dunong/${crypto.randomUUID()}/${Date.now()}.jpg`;
       await uploadBytes(storageRef(storage, path), blob, { contentType: 'image/jpeg' });
 
       const result = await submitScholarshipApplication({

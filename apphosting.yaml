@@ -23,7 +23,7 @@ env:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-    value: rsrapp-e3be1.appspot.com
+    value: rsrapp-e3be1.firebasestorage.app
     availability:
       - BUILD
       - RUNTIME

@@ -1053,7 +1053,7 @@ const scholarshipApplicationSchema = z.object({
     // Proof of residency — the file is uploaded to Storage client-side; only the
     // resulting Storage path + light metadata reach the server.
     proofOfResidency: z.object({
-        storagePath: z.string().trim().min(1).max(500).startsWith('scholarshipProofs/', {
+        storagePath: z.string().trim().min(1).max(500).startsWith('Tulong Dunong/', {
             message: 'Invalid proof-of-residency upload.',
         }),
         fileName: z.string().trim().max(255).optional().default(''),

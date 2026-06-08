@@ -11,13 +11,15 @@ service firebase.storage {
     }
 
     // Scholarship "proof of residency" — government-issued ID images uploaded
-    // from the PUBLIC (unauthenticated) scholarship registration form. Create is
-    // open but tightly constrained (image only, <2MB; the client compresses to
-    // ≤1MB). Reads are restricted to authenticated staff who review the
-    // applications, so IDs are never publicly readable. No update/delete.
-    match /scholarshipProofs/{path=**} {
-      allow read: if request.auth != null;
-      allow create: if request.resource.size < 2 * 1024 * 1024
+    // from the PUBLIC (unauthenticated) scholarship registration form, stored
+    // under the "Tulong Dunong/" folder. Create is open but tightly constrained
+    // (image only, <2MB; the client compresses to ≤1MB). Reads are restricted to
+    // authenticated staff who review the applications, so IDs are never publicly
+    // readable. No update/delete. (folder-capture handles the space in the name.)
+    match /{folder}/{path=**} {
+      allow read: if folder == 'Tulong Dunong' && request.auth != null;
+      allow create: if folder == 'Tulong Dunong'
+        && request.resource.size < 2 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
     }
 
