@@ -93,6 +93,29 @@ export interface ScholarshipSchool {
   courses: string[];
 }
 
+/** How the public registration form's acceptance window is limited. */
+export type ScholarshipFormStatusMode = 'open' | 'maxResponses' | 'deadline' | 'closed';
+
+/** Admin-configured acceptance window for the public scholarship form. */
+export interface ScholarshipFormConfig {
+  status: ScholarshipFormStatusMode;
+  /** Cap used when status === 'maxResponses'. */
+  maxResponses: number;
+  /** Absolute close time (epoch ms) used when status === 'deadline'. */
+  closesAtMs: number | null;
+}
+
+/** Computed live status returned to the public form and the admin banner. */
+export interface ScholarshipFormStatus {
+  open: boolean;
+  status: ScholarshipFormStatusMode;
+  /** Human-readable explanation when closed. */
+  reason: string;
+  responseCount: number;
+  maxResponses: number | null;
+  closesAtMs: number | null;
+}
+
 export interface ShortlistResult {
   isShortlisted: boolean;
   reason: string;

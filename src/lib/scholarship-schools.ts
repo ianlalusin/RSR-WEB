@@ -1,5 +1,10 @@
 import schoolsJson from './data/scholarship-schools.json';
-import type { ScholarshipSchool, ShortlistResult } from './types/scholarship';
+import type {
+  ScholarshipSchool,
+  ShortlistResult,
+  ScholarshipFormConfig,
+  ScholarshipFormStatus,
+} from './types/scholarship';
 
 /**
  * The official list of 56 schools qualified under the Recto Tulong Dunong
@@ -199,6 +204,53 @@ export interface PriorityResult {
  * `hasOtherScholarship === undefined` (older records that predate the field)
  * scores 0 for the last factor.
  */
+/** Default form config when the config doc is missing — accept answers (open). */
+export const DEFAULT_SCHOLARSHIP_FORM_CONFIG: ScholarshipFormConfig = {
+  status: 'open',
+  maxResponses: 0,
+  closesAtMs: null,
+};
+
+/**
+ * Pure decision for whether the public scholarship form is currently accepting
+ * answers, based on the admin config, the current response count, and now.
+ * Used by the public form, the submit gate, and the admin status banner.
+ */
+export function computeFormStatus(
+  config: ScholarshipFormConfig | null | undefined,
+  responseCount: number,
+  nowMs: number,
+): ScholarshipFormStatus {
+  const c = config ?? DEFAULT_SCHOLARSHIP_FORM_CONFIG;
+  let open = true;
+  let reason = '';
+  switch (c.status) {
+    case 'closed':
+      open = false;
+      reason = 'Registration is currently closed.';
+      break;
+    case 'maxResponses':
+      open = c.maxResponses > 0 && responseCount < c.maxResponses;
+      if (!open) reason = 'The maximum number of applications has been reached.';
+      break;
+    case 'deadline':
+      open = c.closesAtMs != null && nowMs < c.closesAtMs;
+      if (!open) reason = 'The registration period has ended.';
+      break;
+    case 'open':
+    default:
+      open = true;
+  }
+  return {
+    open,
+    status: c.status,
+    reason,
+    responseCount,
+    maxResponses: c.status === 'maxResponses' ? c.maxResponses : null,
+    closesAtMs: c.status === 'deadline' ? c.closesAtMs : null,
+  };
+}
+
 export function computePriorityScore(input: {
   isShortlisted: boolean;
   city?: string | null;

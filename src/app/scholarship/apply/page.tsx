@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Info } from 'lucide-react';
+import { Loader2, Info, Facebook, CalendarClock } from 'lucide-react';
 import {
   SCHOLARSHIP_SCHOOLS,
   SCHOOL_NAMES,
@@ -26,8 +26,11 @@ import {
   findSchool,
   isLipaCity,
 } from '@/lib/scholarship-schools';
-import { submitScholarshipApplication, getLipaCityBarangays } from '@/app/actions';
+import { submitScholarshipApplication, getLipaCityBarangays, getScholarshipFormStatus } from '@/app/actions';
+import type { ScholarshipFormStatus } from '@/lib/types/scholarship';
 import { BATANGAS_LGUS } from '@/lib/batangas-lgus';
+
+const CONG_FB_URL = 'https://www.facebook.com/ryansantosrecto';
 
 const SEX_OPTIONS = ['Male', 'Female', 'Prefer not to say'] as const;
 const CIVIL_STATUS_OPTIONS = ['Single', 'Married', 'Widowed', 'Separated'] as const;
@@ -108,6 +111,8 @@ export default function ScholarshipApplyPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formStatus, setFormStatus] = useState<ScholarshipFormStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofError, setProofError] = useState<string | null>(null);
   const proofInputRef = useRef<HTMLInputElement>(null);
@@ -186,6 +191,25 @@ export default function ScholarshipApplyPage() {
   useEffect(() => {
     if (!cityIsLipa) form.setValue('barangay', '');
   }, [cityIsLipa, form]);
+
+  // Whether the form is currently accepting answers (admin-configurable window).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await getScholarshipFormStatus();
+        if (!cancelled) setFormStatus(status);
+      } catch {
+        // Fail open — render the form; the submit gate is authoritative.
+        if (!cancelled) setFormStatus(null);
+      } finally {
+        if (!cancelled) setStatusLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const courseOptions: string[] = useMemo(() => {
     if (!watchedSchool || isOtherSchool) return [];
@@ -269,6 +293,47 @@ export default function ScholarshipApplyPage() {
       });
       setIsSubmitting(false);
     }
+  }
+
+  if (statusLoading) {
+    return (
+      <div className="flex items-center justify-center py-24 text-muted-foreground">
+        <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
+      </div>
+    );
+  }
+
+  if (formStatus && !formStatus.open) {
+    return (
+      <Card className="mx-auto max-w-xl text-center">
+        <CardHeader className="items-center gap-3 pt-10">
+          <div
+            className="flex h-14 w-14 items-center justify-center rounded-full"
+            style={{ backgroundColor: 'rgba(0, 168, 232, 0.12)' }}
+          >
+            <CalendarClock className="h-7 w-7" style={{ color: '#00A8E8' }} aria-hidden="true" />
+          </div>
+          <CardTitle className="text-xl">Registration Closed</CardTitle>
+          <CardDescription className="text-base">
+            {formStatus.status === 'maxResponses'
+              ? 'We have reached the maximum number of applicants for this batch.'
+              : formStatus.reason || 'The registration period has ended.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5 pb-10">
+          <p className="text-sm text-muted-foreground">
+            Thank you for your interest. Please stay tuned for the next batch — like and follow
+            Cong. Ryan Recto&apos;s official Facebook page to get the latest updates.
+          </p>
+          <Button asChild size="lg" className="text-white" style={{ backgroundColor: '#1877F2' }}>
+            <a href={CONG_FB_URL} target="_blank" rel="noopener noreferrer">
+              <Facebook className="mr-2 h-5 w-5" />
+              Follow Cong. Ryan Recto
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

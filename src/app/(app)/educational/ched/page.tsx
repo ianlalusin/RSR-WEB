@@ -5,17 +5,21 @@ import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, Download, ExternalLink, GraduationCap, ListChecks, Users } from 'lucide-react';
+import { AlertTriangle, Download, ExternalLink, GraduationCap, ListChecks, Settings, Users } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage } from '@/lib/access';
 import { useToast } from '@/hooks/use-toast';
+import { computeFormStatus } from '@/lib/scholarship-schools';
+import type { ScholarshipFormConfig } from '@/lib/types/scholarship';
 import {
   getScholarshipApplications,
+  getScholarshipFormConfig,
   type ScholarshipApplicationListItem,
 } from '@/app/actions';
 import { DataTable } from '../scholarship/data-table';
 import { columns } from '../scholarship/columns';
 import SubmissionDetailDialog from '../scholarship/_components/submission-detail-dialog';
+import FormSettingsDialog from '../scholarship/_components/form-settings-dialog';
 
 const PUBLIC_FORM_URL = '/scholarship/apply';
 
@@ -67,8 +71,21 @@ export default function CHEDTulongDunongPage() {
   const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<ScholarshipApplicationListItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [formConfig, setFormConfig] = useState<ScholarshipFormConfig | null>(null);
 
   const canView = canViewPage(userProfile, 'scholarship_applications', { isPlatformAdminClaim });
+
+  const loadConfig = useCallback(async () => {
+    if (!user || !canView) return;
+    try {
+      const token = await user.getIdToken();
+      const res = await getScholarshipFormConfig(token);
+      if (res.success) setFormConfig(res.config);
+    } catch {
+      // non-blocking; banner just won't show
+    }
+  }, [user, canView]);
 
   const reload = useCallback(async () => {
     if (!user || !canView) return;
@@ -91,13 +108,19 @@ export default function CHEDTulongDunongPage() {
 
   useEffect(() => {
     reload();
-  }, [reload]);
+    loadConfig();
+  }, [reload, loadConfig]);
 
   const stats = useMemo(() => {
     const total = items.length;
     const shortlisted = items.filter((a) => a.isShortlisted).length;
     return { total, shortlisted, notShortlisted: total - shortlisted };
   }, [items]);
+
+  const formStatus = useMemo(
+    () => (formConfig ? computeFormStatus(formConfig, items.length, Date.now()) : null),
+    [formConfig, items.length],
+  );
 
   const handleExportExcel = () => {
     if (items.length === 0) {
@@ -144,13 +167,43 @@ export default function CHEDTulongDunongPage() {
             Applications submitted through the public Tulong Dunong registration form.
           </p>
         </div>
-        <Button asChild variant="outline">
-          <a href={PUBLIC_FORM_URL} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="mr-2 h-4 w-4" />
-            See Form
-          </a>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setSettingsOpen(true)}>
+            <Settings className="mr-2 h-4 w-4" />
+            Form Settings
+          </Button>
+          <Button asChild variant="outline">
+            <a href={PUBLIC_FORM_URL} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="mr-2 h-4 w-4" />
+              See Form
+            </a>
+          </Button>
+        </div>
       </div>
+
+      {formStatus && (
+        <div
+          className={`flex flex-wrap items-center gap-2 rounded-md border px-4 py-3 text-sm ${
+            formStatus.open
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : 'border-amber-200 bg-amber-50 text-amber-800'
+          }`}
+        >
+          <span className="font-semibold">
+            {formStatus.open ? 'Form is OPEN' : 'Form is CLOSED'}
+          </span>
+          <span className="opacity-80">
+            {formStatus.status === 'maxResponses' &&
+              `· ${formStatus.responseCount}/${formStatus.maxResponses} responses`}
+            {formStatus.status === 'deadline' &&
+              formStatus.closesAtMs &&
+              `· closes ${new Date(formStatus.closesAtMs).toLocaleString()}`}
+            {formStatus.status === 'closed' && '· manually closed'}
+            {formStatus.status === 'open' && '· no limit set'}
+          </span>
+          {!formStatus.open && formStatus.reason && <span className="opacity-80">— {formStatus.reason}</span>}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
@@ -215,6 +268,8 @@ export default function CHEDTulongDunongPage() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
       />
+
+      <FormSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} onSaved={loadConfig} />
     </div>
   );
 }

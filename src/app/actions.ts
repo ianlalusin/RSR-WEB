@@ -14,8 +14,11 @@ import type {
   ScholarshipRelationship,
   ScholarshipIncomeBracket,
   ScholarshipYearLevel,
+  ScholarshipFormConfig,
+  ScholarshipFormStatus,
+  ScholarshipFormStatusMode,
 } from '@/lib/types/scholarship';
-import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, computePriorityScore, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
+import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, computePriorityScore, computeFormStatus, DEFAULT_SCHOLARSHIP_FORM_CONFIG, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
 import { canViewPage, canDo } from '@/lib/access';
 import { logAudit } from '@/lib/audit';
 import { assertActor, type VerifiedActor } from '@/lib/server-auth';
@@ -1008,6 +1011,120 @@ export async function getLipaCityBarangays(): Promise<
     }
 }
 
+// ---------------------------------------------------------------------------
+// Scholarship form acceptance window (open / max responses / deadline / closed)
+// ---------------------------------------------------------------------------
+
+const SCHOLARSHIP_CONFIG_DOC = adminDb.collection('scholarshipConfig').doc('form');
+
+function normalizeFormConfig(raw: any): ScholarshipFormConfig {
+    const status: ScholarshipFormStatusMode =
+        raw?.status === 'maxResponses' || raw?.status === 'deadline' || raw?.status === 'closed'
+            ? raw.status
+            : 'open';
+    return {
+        status,
+        maxResponses: typeof raw?.maxResponses === 'number' ? raw.maxResponses : 0,
+        closesAtMs: typeof raw?.closesAtMs === 'number' ? raw.closesAtMs : null,
+    };
+}
+
+async function readFormConfig(): Promise<ScholarshipFormConfig> {
+    const snap = await SCHOLARSHIP_CONFIG_DOC.get();
+    return snap.exists ? normalizeFormConfig(snap.data()) : DEFAULT_SCHOLARSHIP_FORM_CONFIG;
+}
+
+async function countScholarshipApplications(): Promise<number> {
+    const c = await adminDb.collection('scholarshipApplications').count().get();
+    return c.data().count;
+}
+
+/** ADMIN — current form config + total response count, for the settings UI. */
+export async function getScholarshipFormConfig(actorToken: ActorToken): Promise<
+    { success: true; config: ScholarshipFormConfig; responseCount: number } | { success: false; error: string }
+> {
+    try {
+        const actor = await resolveActor(actorToken);
+        assertCanViewScholarship(actor);
+        const [config, responseCount] = await Promise.all([readFormConfig(), countScholarshipApplications()]);
+        return { success: true, config, responseCount };
+    } catch (error: any) {
+        return { success: false, error: error?.message ?? 'Failed to load form settings.' };
+    }
+}
+
+/** ADMIN — update the acceptance window. Deadline is given as days + hours from now. */
+export async function updateScholarshipFormConfig(
+    input: { status: ScholarshipFormStatusMode; maxResponses?: number; deadlineDays?: number; deadlineHours?: number },
+    actorToken: ActorToken,
+): Promise<{ success: true; config: ScholarshipFormConfig } | { success: false; error: string }> {
+    try {
+        const actor = await resolveActor(actorToken);
+        assertCanViewScholarship(actor);
+        if (!actor.isPlatformAdmin && actor.profile && !canDo(actor.profile, 'scholarship_applications', 'update')) {
+            return { success: false, error: 'You do not have permission to change form settings.' };
+        }
+
+        const status = (['open', 'maxResponses', 'deadline', 'closed'] as const).includes(input.status as any)
+            ? input.status
+            : 'open';
+
+        let maxResponses = 0;
+        let closesAtMs: number | null = null;
+
+        if (status === 'maxResponses') {
+            maxResponses = Math.floor(Number(input.maxResponses));
+            if (!Number.isFinite(maxResponses) || maxResponses < 1) {
+                return { success: false, error: 'Enter a valid maximum number of responses (at least 1).' };
+            }
+        }
+        if (status === 'deadline') {
+            const days = Math.max(0, Math.floor(Number(input.deadlineDays) || 0));
+            const hours = Math.max(0, Math.floor(Number(input.deadlineHours) || 0));
+            const durationMs = days * 86_400_000 + hours * 3_600_000;
+            if (durationMs <= 0) {
+                return { success: false, error: 'Enter a deadline of at least 1 hour.' };
+            }
+            closesAtMs = Date.now() + durationMs;
+        }
+
+        const config: ScholarshipFormConfig = { status, maxResponses, closesAtMs };
+        await SCHOLARSHIP_CONFIG_DOC.set(
+            { ...config, updatedAt: FieldValue.serverTimestamp(), updatedByUid: actor.uid, updatedByEmail: actor.email },
+            { merge: true },
+        );
+
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'update',
+            entityType: 'system',
+            entityId: 'scholarshipFormConfig',
+            details: config,
+        });
+
+        return { success: true, config };
+    } catch (error: any) {
+        return { success: false, error: error?.message ?? 'Failed to save form settings.' };
+    }
+}
+
+/**
+ * PUBLIC — whether the registration form is accepting answers right now. Fails
+ * OPEN on error so a transient glitch never blocks applicants; the submit gate
+ * is the authoritative enforcement.
+ */
+export async function getScholarshipFormStatus(): Promise<ScholarshipFormStatus> {
+    try {
+        const config = await readFormConfig();
+        const count = config.status === 'maxResponses' ? await countScholarshipApplications() : 0;
+        return computeFormStatus(config, count, Date.now());
+    } catch (error) {
+        console.error('getScholarshipFormStatus error:', error);
+        return computeFormStatus(DEFAULT_SCHOLARSHIP_FORM_CONFIG, 0, Date.now());
+    }
+}
+
 const SEX_VALUES: ScholarshipSex[] = ['Male', 'Female', 'Prefer not to say'];
 const CIVIL_STATUS_VALUES: ScholarshipCivilStatus[] = ['Single', 'Married', 'Widowed', 'Separated'];
 const RELATIONSHIP_VALUES: ScholarshipRelationship[] = ['Mother', 'Father', 'Guardian', 'Sibling', 'Spouse', 'Other'];
@@ -1100,6 +1217,15 @@ function generateScholarshipReferenceNo(): string {
  */
 export async function submitScholarshipApplication(input: unknown) {
     try {
+        // Gate: refuse if the acceptance window is closed (authoritative,
+        // server-side enforcement of the max-responses / deadline / closed rule).
+        const gateConfig = await readFormConfig();
+        const gateCount = gateConfig.status === 'maxResponses' ? await countScholarshipApplications() : 0;
+        const gate = computeFormStatus(gateConfig, gateCount, Date.now());
+        if (!gate.open) {
+            return { success: false as const, error: gate.reason || 'Registration is closed.' };
+        }
+
         const parsed = scholarshipApplicationSchema.safeParse(input);
         if (!parsed.success) {
             const firstIssue = parsed.error.issues[0];
