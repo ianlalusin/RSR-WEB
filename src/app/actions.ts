@@ -1027,6 +1027,8 @@ function normalizeFormConfig(raw: any): ScholarshipFormConfig {
         maxResponses: typeof raw?.maxResponses === 'number' ? raw.maxResponses : 0,
         closesAtMs: typeof raw?.closesAtMs === 'number' ? raw.closesAtMs : null,
         suspended: raw?.suspended === true,
+        currentBatch: typeof raw?.currentBatch === 'number' && raw.currentBatch >= 1 ? raw.currentBatch : 1,
+        batches: Array.isArray(raw?.batches) ? raw.batches : [],
     };
 }
 
@@ -1035,19 +1037,23 @@ async function readFormConfig(): Promise<ScholarshipFormConfig> {
     return snap.exists ? normalizeFormConfig(snap.data()) : DEFAULT_SCHOLARSHIP_FORM_CONFIG;
 }
 
-async function countScholarshipApplications(): Promise<number> {
-    const c = await adminDb.collection('scholarshipApplications').count().get();
+/** Count applications, optionally scoped to a single batch (current-batch counting). */
+async function countScholarshipApplications(batchNo?: number): Promise<number> {
+    const base = adminDb.collection('scholarshipApplications');
+    const q = typeof batchNo === 'number' ? base.where('batchNo', '==', batchNo) : base;
+    const c = await q.count().get();
     return c.data().count;
 }
 
-/** ADMIN — current form config + total response count, for the settings UI. */
+/** ADMIN — current form config + current-batch response count, for the settings UI / banner. */
 export async function getScholarshipFormConfig(actorToken: ActorToken): Promise<
     { success: true; config: ScholarshipFormConfig; responseCount: number } | { success: false; error: string }
 > {
     try {
         const actor = await resolveActor(actorToken);
         assertCanViewScholarship(actor);
-        const [config, responseCount] = await Promise.all([readFormConfig(), countScholarshipApplications()]);
+        const config = await readFormConfig();
+        const responseCount = await countScholarshipApplications(config.currentBatch ?? 1);
         return { success: true, config, responseCount };
     } catch (error: any) {
         return { success: false, error: error?.message ?? 'Failed to load form settings.' };
@@ -1140,6 +1146,55 @@ export async function setScholarshipFormSuspended(
 }
 
 /**
+ * ADMIN — "Save this list as batch": locks the current batch and starts the next
+ * one. New submissions are stamped with the new batch; the form is paused so the
+ * admin can deliberately re-open it for the new batch. Past batches are kept.
+ */
+export async function finalizeScholarshipBatch(
+    actorToken: ActorToken,
+): Promise<{ success: true; finalizedBatch: number; count: number; newBatch: number } | { success: false; error: string }> {
+    try {
+        const actor = await resolveActor(actorToken);
+        assertCanViewScholarship(actor);
+        if (!actor.isPlatformAdmin && actor.profile && !canDo(actor.profile, 'scholarship_applications', 'update')) {
+            return { success: false, error: 'You do not have permission to save batches.' };
+        }
+        const config = await readFormConfig();
+        const current = config.currentBatch ?? 1;
+        const count = await countScholarshipApplications(current);
+        const newBatch = current + 1;
+        const batches = (Array.isArray(config.batches) ? config.batches.slice() : []).filter((b) => b.no !== current);
+        batches.push({ no: current, finalizedAtMs: Date.now(), count });
+        batches.sort((a, b) => a.no - b.no);
+
+        await SCHOLARSHIP_CONFIG_DOC.set(
+            {
+                currentBatch: newBatch,
+                batches,
+                suspended: true,
+                updatedAt: FieldValue.serverTimestamp(),
+                updatedByUid: actor.uid,
+                updatedByEmail: actor.email,
+            },
+            { merge: true },
+        );
+
+        await logAudit({
+            actorUid: actor.uid,
+            actorEmail: actor.email,
+            action: 'update',
+            entityType: 'system',
+            entityId: 'scholarshipFormConfig',
+            details: { finalizedBatch: current, count, newBatch },
+        });
+
+        return { success: true, finalizedBatch: current, count, newBatch };
+    } catch (error: any) {
+        return { success: false, error: error?.message ?? 'Failed to save batch.' };
+    }
+}
+
+/**
  * PUBLIC — whether the registration form is accepting answers right now. Fails
  * OPEN on error so a transient glitch never blocks applicants; the submit gate
  * is the authoritative enforcement.
@@ -1147,7 +1202,9 @@ export async function setScholarshipFormSuspended(
 export async function getScholarshipFormStatus(): Promise<ScholarshipFormStatus> {
     try {
         const config = await readFormConfig();
-        const count = config.status === 'maxResponses' ? await countScholarshipApplications() : 0;
+        const count = config.status === 'maxResponses'
+            ? await countScholarshipApplications(config.currentBatch ?? 1)
+            : 0;
         return computeFormStatus(config, count, Date.now());
     } catch (error) {
         console.error('getScholarshipFormStatus error:', error);
@@ -1249,8 +1306,10 @@ export async function submitScholarshipApplication(input: unknown) {
     try {
         // Gate: refuse if the acceptance window is closed (authoritative,
         // server-side enforcement of the max-responses / deadline / closed rule).
+        // Max-responses counting is scoped to the current batch.
         const gateConfig = await readFormConfig();
-        const gateCount = gateConfig.status === 'maxResponses' ? await countScholarshipApplications() : 0;
+        const currentBatch = gateConfig.currentBatch ?? 1;
+        const gateCount = gateConfig.status === 'maxResponses' ? await countScholarshipApplications(currentBatch) : 0;
         const gate = computeFormStatus(gateConfig, gateCount, Date.now());
         if (!gate.open) {
             return { success: false as const, error: gate.reason || 'Registration is closed.' };
@@ -1340,6 +1399,8 @@ export async function submitScholarshipApplication(input: unknown) {
             otherScholarshipDetails: data.hasOtherScholarship ? (data.otherScholarshipDetails ?? '') : '',
             priorityScore: priority.score,
 
+            batchNo: currentBatch,
+
             consentGiven: true,
 
             isShortlisted: shortlist.isShortlisted,
@@ -1400,7 +1461,7 @@ function serializeTimestamp(value: any): string | null {
  * ADMIN — lists every scholarship application for users with
  * scholarship_applications page access. Audited.
  */
-export async function getScholarshipApplications(actorToken: ActorToken): Promise<
+export async function getScholarshipApplications(actorToken: ActorToken, batchNo?: number): Promise<
     | { success: true; data: ScholarshipApplicationListItem[] }
     | { success: false; error: string }
 > {
@@ -1408,10 +1469,12 @@ export async function getScholarshipApplications(actorToken: ActorToken): Promis
         const actor = await resolveActor(actorToken);
         assertCanViewScholarship(actor);
 
-        const snap = await adminDb
-            .collection('scholarshipApplications')
-            .orderBy('createdAt', 'desc')
-            .get();
+        const base = adminDb.collection('scholarshipApplications');
+        // Batch case uses an equality filter only (single-field index) and sorts in
+        // memory, avoiding a composite (batchNo + createdAt) index.
+        const snap = typeof batchNo === 'number'
+            ? await base.where('batchNo', '==', batchNo).get()
+            : await base.orderBy('createdAt', 'desc').get();
 
         const items: ScholarshipApplicationListItem[] = snap.docs.map((d) => {
             const raw = d.data() as any;
@@ -1458,6 +1521,7 @@ export async function getScholarshipApplications(actorToken: ActorToken): Promis
                     hasOtherScholarship: typeof raw.hasOtherScholarship === 'boolean' ? raw.hasOtherScholarship : undefined,
                     yearLevel: raw.yearLevel,
                 }).score,
+                batchNo: typeof raw.batchNo === 'number' ? raw.batchNo : 1,
                 consentGiven: raw.consentGiven === true,
                 isShortlisted: raw.isShortlisted === true,
                 shortlistReason: raw.shortlistReason ?? '',
@@ -1465,6 +1529,9 @@ export async function getScholarshipApplications(actorToken: ActorToken): Promis
                 updatedAt: serializeTimestamp(raw.updatedAt),
             };
         });
+
+        // Newest first (batch case is fetched without an orderBy to avoid a composite index).
+        items.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
 
         await logAudit({
             actorUid: actor.uid,
@@ -1527,7 +1594,7 @@ export async function exportScholarshipApplicationsCSV(
             'Parent/Guardian', 'Relationship', 'Parent Contact', 'Income Bracket',
             'Other Scholarship Grant', 'Other Grant Details',
             'School', 'Course', 'Year Level', 'Expected Graduation Year',
-            'Proof of Residency', 'Year Level Points', 'Priority Score', 'Shortlisted', 'Shortlist Reason',
+            'Proof of Residency', 'Year Level Points', 'Priority Score', 'Batch', 'Shortlisted', 'Shortlist Reason',
         ];
 
         const lines: string[] = [header.map(csvCell).join(',')];
@@ -1550,7 +1617,7 @@ export async function exportScholarshipApplicationsCSV(
                 r.school, r.course, r.yearLevel, r.expectedGraduationYear,
                 r.proofOfResidency?.storagePath ? 'Uploaded' : 'Missing',
                 yearLevelPriorityPoints(r.yearLevel),
-                priorityScore, r.isShortlisted ? 'YES' : 'NO', r.shortlistReason ?? '',
+                priorityScore, r.batchNo ?? 1, r.isShortlisted ? 'YES' : 'NO', r.shortlistReason ?? '',
             ].map(csvCell).join(','));
         }
 

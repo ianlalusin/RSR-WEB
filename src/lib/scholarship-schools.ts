@@ -234,6 +234,8 @@ export const DEFAULT_SCHOLARSHIP_FORM_CONFIG: ScholarshipFormConfig = {
   maxResponses: 0,
   closesAtMs: null,
   suspended: false,
+  currentBatch: 1,
+  batches: [],
 };
 
 /**

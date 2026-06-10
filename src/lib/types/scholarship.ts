@@ -75,6 +75,10 @@ export interface ScholarshipApplication {
   // Priority score (0–4), computed at submit. See computePriorityScore.
   priorityScore?: number;
 
+  // Batch the application belongs to (1-based). Stamped at submit time from the
+  // config's currentBatch. Older records default to batch 1.
+  batchNo?: number;
+
   // Consent
   consentGiven: boolean;
 
@@ -96,6 +100,13 @@ export interface ScholarshipSchool {
 /** How the public registration form's acceptance window is limited. */
 export type ScholarshipFormStatusMode = 'open' | 'maxResponses' | 'deadline' | 'closed';
 
+/** A finalized (locked) batch of responses. */
+export interface ScholarshipBatchInfo {
+  no: number;
+  finalizedAtMs: number | null;
+  count: number;
+}
+
 /** Admin-configured acceptance window for the public scholarship form. */
 export interface ScholarshipFormConfig {
   status: ScholarshipFormStatusMode;
@@ -105,6 +116,10 @@ export interface ScholarshipFormConfig {
   closesAtMs: number | null;
   /** Manual override — when true, the form is paused regardless of the rule. */
   suspended?: boolean;
+  /** Current batch number new submissions are stamped with (1-based). */
+  currentBatch?: number;
+  /** History of finalized batches. */
+  batches?: ScholarshipBatchInfo[];
 }
 
 /** Computed live status returned to the public form and the admin banner. */

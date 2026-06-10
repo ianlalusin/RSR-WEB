@@ -5,7 +5,18 @@ import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, Download, ExternalLink, GraduationCap, ListChecks, PauseCircle, PlayCircle, Settings, Users } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { AlertTriangle, Download, ExternalLink, GraduationCap, Layers, ListChecks, Lock, PauseCircle, PlayCircle, Settings, Users } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage } from '@/lib/access';
 import { useToast } from '@/hooks/use-toast';
@@ -15,6 +26,7 @@ import {
   getScholarshipApplications,
   getScholarshipFormConfig,
   setScholarshipFormSuspended,
+  finalizeScholarshipBatch,
   type ScholarshipApplicationListItem,
 } from '@/app/actions';
 import { DataTable } from '../scholarship/data-table';
@@ -24,9 +36,13 @@ import FormSettingsDialog from '../scholarship/_components/form-settings-dialog'
 
 const PUBLIC_FORM_URL = '/scholarship/apply';
 
-/** Builds a single-sheet workbook from the loaded applications. */
-function buildApplicationsWorkbook(items: ScholarshipApplicationListItem[]): XLSX.WorkBook {
-  const rows = items.map((a) => ({
+/** Builds a single-sheet workbook for one batch, with per-batch row numbers. */
+function buildApplicationsWorkbook(items: ScholarshipApplicationListItem[], batchNo: number): XLSX.WorkBook {
+  // Number rows 1..N by submission time ascending (so #1 is the batch's first).
+  const ordered = [...items].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+  const rows = ordered.map((a, i) => ({
+    'No.': i + 1,
+    'Batch': a.batchNo ?? batchNo,
     'Date Submitted': a.createdAt ?? '',
     'Reference No.': a.referenceNo,
     'Last Name': a.lastName,
@@ -40,7 +56,6 @@ function buildApplicationsWorkbook(items: ScholarshipApplicationListItem[]): XLS
     'Barangay': a.barangay ?? '',
     'City/Municipality': a.city,
     'Province': a.province,
-    'Postal Code': a.postalCode ?? '',
     'Mobile': a.mobile,
     'Email': a.email,
     'Parent/Guardian': a.parentName,
@@ -61,7 +76,7 @@ function buildApplicationsWorkbook(items: ScholarshipApplicationListItem[]): XLS
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Applications');
+  XLSX.utils.book_append_sheet(wb, ws, `Batch ${batchNo}`);
   return wb;
 }
 
@@ -75,16 +90,31 @@ export default function CHEDTulongDunongPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [formConfig, setFormConfig] = useState<ScholarshipFormConfig | null>(null);
+  const [currentBatchCount, setCurrentBatchCount] = useState(0);
   const [suspending, setSuspending] = useState(false);
+  const [selectedBatch, setSelectedBatch] = useState<number | null>(null);
+  const [confirmBatchOpen, setConfirmBatchOpen] = useState(false);
+  const [savingBatch, setSavingBatch] = useState(false);
 
   const canView = canViewPage(userProfile, 'scholarship_applications', { isPlatformAdminClaim });
+
+  const currentBatch = formConfig?.currentBatch ?? 1;
+  const selectedIsCurrent = selectedBatch != null && selectedBatch === currentBatch;
+  const availableBatches = useMemo(
+    () => Array.from({ length: currentBatch }, (_, i) => i + 1),
+    [currentBatch],
+  );
 
   const loadConfig = useCallback(async () => {
     if (!user || !canView) return;
     try {
       const token = await user.getIdToken();
       const res = await getScholarshipFormConfig(token);
-      if (res.success) setFormConfig(res.config);
+      if (res.success) {
+        setFormConfig(res.config);
+        setCurrentBatchCount(res.responseCount);
+        setSelectedBatch((prev) => (prev == null ? (res.config.currentBatch ?? 1) : prev));
+      }
     } catch {
       // non-blocking; banner just won't show
     }
@@ -111,11 +141,11 @@ export default function CHEDTulongDunongPage() {
   }, [user, formConfig, toast, loadConfig]);
 
   const reload = useCallback(async () => {
-    if (!user || !canView) return;
+    if (!user || !canView || selectedBatch == null) return;
     setLoading(true);
     try {
       const token = await user.getIdToken();
-      const res = await getScholarshipApplications(token);
+      const res = await getScholarshipApplications(token, selectedBatch);
       if (!res.success) {
         toast({ variant: 'destructive', title: 'Failed to load applications', description: res.error });
         setItems([]);
@@ -127,12 +157,15 @@ export default function CHEDTulongDunongPage() {
     } finally {
       setLoading(false);
     }
-  }, [user, canView, toast]);
+  }, [user, canView, toast, selectedBatch]);
 
   useEffect(() => {
-    reload();
     loadConfig();
-  }, [reload, loadConfig]);
+  }, [loadConfig]);
+
+  useEffect(() => {
+    if (selectedBatch != null) reload();
+  }, [selectedBatch, reload]);
 
   const stats = useMemo(() => {
     const total = items.length;
@@ -140,26 +173,53 @@ export default function CHEDTulongDunongPage() {
     return { total, shortlisted, notShortlisted: total - shortlisted };
   }, [items]);
 
+  // Form-acceptance banner always reflects the CURRENT batch, regardless of which
+  // batch is being viewed.
   const formStatus = useMemo(
-    () => (formConfig ? computeFormStatus(formConfig, items.length, Date.now()) : null),
-    [formConfig, items.length],
+    () => (formConfig ? computeFormStatus(formConfig, currentBatchCount, Date.now()) : null),
+    [formConfig, currentBatchCount],
   );
 
   const handleExportExcel = () => {
     if (items.length === 0) {
-      toast({ title: 'Nothing to export', description: 'There are no applications yet.' });
+      toast({ title: 'Nothing to export', description: 'There are no responses in this batch.' });
       return;
     }
     setExporting(true);
     try {
-      const wb = buildApplicationsWorkbook(items);
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      XLSX.writeFile(wb, `ched-tulong-dunong-${stamp}.xlsx`);
-      toast({ title: 'Excel downloaded' });
+      const batch = selectedBatch ?? currentBatch;
+      const wb = buildApplicationsWorkbook(items, batch);
+      const stamp = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `ched-tulong-dunong-batch-${batch}-${stamp}.xlsx`);
+      toast({ title: `Batch ${batch} Excel downloaded` });
     } catch (err: any) {
       toast({ variant: 'destructive', title: 'Export failed', description: err?.message });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleFinalizeBatch = async () => {
+    if (!user) return;
+    setSavingBatch(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await finalizeScholarshipBatch(token);
+      if (!res.success) {
+        toast({ variant: 'destructive', title: 'Could not save batch', description: res.error });
+        return;
+      }
+      toast({
+        title: `Batch ${res.finalizedBatch} saved (${res.count} responses)`,
+        description: `New Batch ${res.newBatch} started. The form is now paused — open it when ready for the next batch.`,
+      });
+      setConfirmBatchOpen(false);
+      await loadConfig();
+      setSelectedBatch(res.newBatch);
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Could not save batch', description: err?.message });
+    } finally {
+      setSavingBatch(false);
     }
   };
 
@@ -180,6 +240,8 @@ export default function CHEDTulongDunongPage() {
       </Card>
     );
   }
+
+  const batchMeta = formConfig?.batches?.find((b) => b.no === selectedBatch);
 
   return (
     <div className="space-y-6">
@@ -230,24 +292,65 @@ export default function CHEDTulongDunongPage() {
           <span className="font-semibold">
             {formStatus.suspended ? 'Form is PAUSED' : formStatus.open ? 'Form is OPEN' : 'Form is CLOSED'}
           </span>
+          <span className="opacity-80">· Batch {currentBatch} · {currentBatchCount} response(s)</span>
           <span className="opacity-80">
-            {formStatus.suspended && '· manually suspended'}
             {!formStatus.suspended && formStatus.status === 'maxResponses' &&
-              `· ${formStatus.responseCount}/${formStatus.maxResponses} responses`}
+              `· cap ${formStatus.maxResponses}`}
             {!formStatus.suspended && formStatus.status === 'deadline' &&
               formStatus.closesAtMs &&
               `· closes ${new Date(formStatus.closesAtMs).toLocaleString()}`}
-            {!formStatus.suspended && formStatus.status === 'closed' && '· manually closed'}
-            {!formStatus.suspended && formStatus.status === 'open' && '· no limit set'}
           </span>
           {!formStatus.open && formStatus.reason && <span className="opacity-80">— {formStatus.reason}</span>}
         </div>
       )}
 
+      {/* Batch selector + save-as-batch */}
+      <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Viewing</span>
+          <Select
+            value={selectedBatch != null ? String(selectedBatch) : undefined}
+            onValueChange={(v) => setSelectedBatch(Number(v))}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Select batch" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableBatches.map((n) => {
+                const meta = formConfig?.batches?.find((b) => b.no === n);
+                const label =
+                  n === currentBatch
+                    ? `Batch ${n} (current)`
+                    : `Batch ${n}${meta ? ` · ${meta.count} locked` : ''}`;
+                return (
+                  <SelectItem key={n} value={String(n)}>
+                    {label}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+          {!selectedIsCurrent && batchMeta && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Lock className="h-3 w-3" /> Locked
+              {batchMeta.finalizedAtMs ? ` ${new Date(batchMeta.finalizedAtMs).toLocaleDateString()}` : ''}
+            </span>
+          )}
+        </div>
+
+        {selectedIsCurrent && (
+          <Button onClick={() => setConfirmBatchOpen(true)} disabled={savingBatch}>
+            <Lock className="mr-2 h-4 w-4" />
+            Save this list as Batch {currentBatch}
+          </Button>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Applications</CardTitle>
+            <CardTitle className="text-sm font-medium">Batch {selectedBatch ?? currentBatch} Responses</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -280,7 +383,7 @@ export default function CHEDTulongDunongPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Submissions</CardTitle>
+          <CardTitle>Submissions — Batch {selectedBatch ?? currentBatch}</CardTitle>
           <CardDescription>Click any row to view full applicant details.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -309,6 +412,26 @@ export default function CHEDTulongDunongPage() {
       />
 
       <FormSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} onSaved={loadConfig} />
+
+      <AlertDialog open={confirmBatchOpen} onOpenChange={setConfirmBatchOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save Batch {currentBatch}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This locks the <strong>{currentBatchCount} response(s)</strong> currently in Batch {currentBatch}
+              and starts <strong>Batch {currentBatch + 1}</strong> for new submissions (numbering restarts at 1).
+              The form will be <strong>paused</strong> so you can re-open it for the next batch when ready.
+              Locked batches are kept and remain downloadable. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingBatch}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); handleFinalizeBatch(); }} disabled={savingBatch}>
+              {savingBatch ? 'Saving…' : `Save Batch ${currentBatch}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
