@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { AlertTriangle, Download, ExternalLink, GraduationCap, Layers, ListChecks, Lock, PauseCircle, PlayCircle, Settings, Users } from 'lucide-react';
+import { AlertTriangle, Download, ExternalLink, FolderArchive, GraduationCap, Layers, ListChecks, Lock, PauseCircle, PlayCircle, Settings, Users } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage } from '@/lib/access';
 import { useToast } from '@/hooks/use-toast';
@@ -69,6 +69,8 @@ function buildApplicationsWorkbook(items: ScholarshipApplicationListItem[], batc
     'Year Level': a.yearLevel,
     'Expected Graduation Year': a.expectedGraduationYear,
     'Proof of Residency': a.proofOfResidency?.storagePath ? 'Uploaded' : 'Missing',
+    'Has Proof of Residency ID': !!a.proofOfResidency?.storagePath,
+    'Has Registration Form': !!(a as any).registrationForm?.storagePath,
     'Year Level Points': yearLevelPriorityPoints(a.yearLevel),
     'Priority Score': a.priorityScore ?? 0,
     'Shortlisted': a.isShortlisted ? 'YES' : 'NO',
@@ -86,6 +88,7 @@ export default function CHEDTulongDunongPage() {
   const [items, setItems] = useState<ScholarshipApplicationListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [zipping, setZipping] = useState(false);
   const [selected, setSelected] = useState<ScholarshipApplicationListItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -196,6 +199,38 @@ export default function CHEDTulongDunongPage() {
       toast({ variant: 'destructive', title: 'Export failed', description: err?.message });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleRegFormsZip = async () => {
+    if (!user) return;
+    setZipping(true);
+    try {
+      const token = await user.getIdToken();
+      const batch = selectedBatch ?? currentBatch;
+      const res = await fetch(`/api/scholarship/reg-forms-zip?batch=${batch}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast({ variant: 'destructive', title: 'Download failed', description: body.error ?? res.statusText });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.download = `reg-forms-batch${batch}-${stamp}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: `Batch ${batch} reg forms ZIP downloaded` });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Download failed', description: err?.message });
+    } finally {
+      setZipping(false);
     }
   };
 
@@ -395,10 +430,16 @@ export default function CHEDTulongDunongPage() {
               data={items}
               onRowClick={openDetail}
               rightSlot={
-                <Button onClick={handleExportExcel} disabled={exporting} variant="outline">
-                  <Download className="mr-2 h-4 w-4" />
-                  {exporting ? 'Exporting...' : 'Download Excel'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={handleExportExcel} disabled={exporting} variant="outline">
+                    <Download className="mr-2 h-4 w-4" />
+                    {exporting ? 'Exporting...' : 'Download Excel'}
+                  </Button>
+                  <Button onClick={handleRegFormsZip} disabled={zipping} variant="outline">
+                    <FolderArchive className="mr-2 h-4 w-4" />
+                    {zipping ? 'Zipping...' : 'Reg Forms ZIP'}
+                  </Button>
+                </div>
               }
             />
           )}

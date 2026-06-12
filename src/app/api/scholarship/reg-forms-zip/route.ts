@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Query } from 'firebase-admin/firestore';
 import JSZip from 'jszip';
 import { assertActor } from '@/lib/server-auth';
 import { adminDb, adminStorage } from '@/lib/firebase-admin';
@@ -23,7 +24,14 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Permission denied.' }, { status: 403 });
     }
 
-    const snap = await adminDb.collection('scholarshipApplications').orderBy('createdAt', 'desc').get();
+    const batchParam = req.nextUrl.searchParams.get('batch');
+    const batchNo = batchParam ? parseInt(batchParam, 10) : null;
+
+    let query: Query = adminDb.collection('scholarshipApplications');
+    if (batchNo && !isNaN(batchNo)) {
+        query = query.where('batchNo', '==', batchNo);
+    }
+    const snap = await query.orderBy('createdAt', 'desc').get();
 
     const bucket = adminStorage.bucket(BUCKET);
     const zip = new JSZip();
