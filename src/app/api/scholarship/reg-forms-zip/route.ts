@@ -1,10 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import JSZip from 'jszip';
+import { Readable } from 'node:stream';
+import archiver from 'archiver';
 import { assertActor } from '@/lib/server-auth';
 import { adminDb, adminStorage } from '@/lib/firebase-admin';
 import { canViewPage } from '@/lib/access';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 600;
+
 const BUCKET = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!;
+
+/** Cap concurrent Storage existence checks so we don't fan out 500 calls at once. */
+async function filterExisting<T>(items: T[], path: (t: T) => string, bucket: ReturnType<typeof adminStorage.bucket>, limit = 25): Promise<T[]> {
+    const out: T[] = [];
+    for (let i = 0; i < items.length; i += limit) {
+        const chunk = items.slice(i, i + limit);
+        const flags = await Promise.all(
+            chunk.map(async (t) => {
+                try {
+                    const [exists] = await bucket.file(path(t)).exists();
+                    return exists;
+                } catch {
+                    return false;
+                }
+            }),
+        );
+        chunk.forEach((t, j) => flags[j] && out.push(t));
+    }
+    return out;
+}
 
 export async function GET(req: NextRequest) {
     const token = req.headers.get('authorization')?.replace('Bearer ', '');
@@ -27,66 +52,62 @@ export async function GET(req: NextRequest) {
     const batchNo = batchParam ? parseInt(batchParam, 10) : null;
 
     try {
-        // When filtering by batch, use an equality filter ONLY and sort in memory.
-        // This mirrors getScholarshipApplications and avoids needing a composite
-        // (batchNo + createdAt) Firestore index, which is not provisioned — the
-        // composite query would otherwise throw FAILED_PRECONDITION.
+        // When filtering by batch, use an equality filter ONLY and sort in memory —
+        // mirrors getScholarshipApplications and avoids needing a composite
+        // (batchNo + createdAt) index that isn't provisioned.
         const col = adminDb.collection('scholarshipApplications');
         const snap = batchNo && !isNaN(batchNo)
             ? await col.where('batchNo', '==', batchNo).get()
             : await col.orderBy('createdAt', 'desc').get();
 
         const bucket = adminStorage.bucket(BUCKET);
-        const zip = new JSZip();
 
-        // Track filenames to handle duplicates (same full name).
-        const nameCount = new Map<string, number>();
-
-        // Only docs with an uploaded registration form, newest first (sorted in
-        // memory so ordering is consistent across both query paths above).
         const docs = snap.docs
             .filter((d) => !!d.data().registrationForm?.storagePath)
             .sort((a, b) => (b.data().createdAt?.toMillis?.() ?? 0) - (a.data().createdAt?.toMillis?.() ?? 0));
 
-        // Download files in parallel with a concurrency cap of 10.
-        const CONCURRENCY = 10;
-        for (let i = 0; i < docs.length; i += CONCURRENCY) {
-            const chunk = docs.slice(i, i + CONCURRENCY);
-            await Promise.all(
-                chunk.map(async (doc) => {
-                    const r = doc.data();
-                    const storagePath: string = r.registrationForm.storagePath;
-                    const contentType: string = r.registrationForm?.contentType ?? '';
-                    const ext = contentType === 'application/pdf' ? '.pdf' : '.jpg';
+        // Skip files that no longer exist so one missing object can't abort the
+        // whole stream (we can't change the HTTP status once streaming starts).
+        const present = await filterExisting(docs, (d) => d.data().registrationForm.storagePath, bucket);
 
-                    const mi = r.middleName?.trim()
-                        ? ' ' + r.middleName.trim().charAt(0).toUpperCase() + '.'
-                        : '';
-                    const baseName = `${r.lastName ?? ''}, ${r.firstName ?? ''}${mi}`;
+        // STREAM the zip: archiver pulls one file at a time from Storage and writes
+        // it straight to the response, so peak memory is ~one file — never the whole
+        // batch. (The old version buffered every file + the full zip in memory, which
+        // OOM-killed the container -> 503 on large batches.) `store` = no compression,
+        // since registration forms are already-compressed JPG/PDF.
+        const archive = archiver('zip', { store: true });
+        archive.on('error', (err) => archive.destroy(err));
 
-                    // Deduplicate: Santos, Juan D → Santos, Juan D (2) on collision.
-                    const count = (nameCount.get(baseName) ?? 0) + 1;
-                    nameCount.set(baseName, count);
-                    const fileName = count === 1 ? `${baseName}${ext}` : `${baseName} (${count})${ext}`;
+        const nameCount = new Map<string, number>();
+        for (const doc of present) {
+            const r = doc.data();
+            const storagePath: string = r.registrationForm.storagePath;
+            const contentType: string = r.registrationForm?.contentType ?? '';
+            const ext = contentType === 'application/pdf' ? '.pdf' : '.jpg';
 
-                    try {
-                        const [buffer] = await bucket.file(storagePath).download();
-                        zip.file(fileName, buffer);
-                    } catch {
-                        // Skip files that fail to download rather than aborting the whole zip.
-                    }
-                }),
-            );
+            const mi = r.middleName?.trim()
+                ? ' ' + r.middleName.trim().charAt(0).toUpperCase() + '.'
+                : '';
+            const baseName = `${r.lastName ?? ''}, ${r.firstName ?? ''}${mi}`;
+
+            // Deduplicate: Santos, Juan D -> Santos, Juan D (2) on collision.
+            const count = (nameCount.get(baseName) ?? 0) + 1;
+            nameCount.set(baseName, count);
+            const fileName = count === 1 ? `${baseName}${ext}` : `${baseName} (${count})${ext}`;
+
+            archive.append(bucket.file(storagePath).createReadStream(), { name: fileName });
         }
+        archive.finalize();
 
-        const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
         const stamp = new Date().toISOString().slice(0, 10);
+        const suffix = batchNo && !isNaN(batchNo) ? `batch${batchNo}-` : '';
+        const body = Readable.toWeb(archive) as unknown as ReadableStream<Uint8Array>;
 
-        return new NextResponse(zipBuffer, {
+        return new NextResponse(body, {
             headers: {
                 'Content-Type': 'application/zip',
-                'Content-Disposition': `attachment; filename="reg-forms-${stamp}.zip"`,
-                'Content-Length': String(zipBuffer.length),
+                'Content-Disposition': `attachment; filename="reg-forms-${suffix}${stamp}.zip"`,
+                'Cache-Control': 'no-store',
             },
         });
     } catch (err: any) {

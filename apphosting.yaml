@@ -5,6 +5,11 @@ runConfig:
   # Increase this value if you'd like to automatically spin up
   # more instances in response to increased traffic.
   maxInstances: 1
+  cpu: 1
+  # Headroom for large admin exports (e.g. the streamed registration-forms ZIP).
+  memoryMiB: 1024
+  # Large batch exports stream many files; allow a generous request window.
+  timeoutSeconds: 600
 
 env:
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
