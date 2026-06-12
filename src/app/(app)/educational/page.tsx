@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { BookOpen, Award, ChevronRight, AlertTriangle } from 'lucide-react';
+import { BookOpen, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage } from '@/lib/access';
 
@@ -11,16 +11,9 @@ import type { PageKey } from '@/lib/types';
 const educationalCards: { title: string; description: string; href: string; icon: any; pageKey: PageKey }[] = [
   {
     title: 'CHED Tulong Dunong',
-    description: 'Review public Tulong Dunong applications, download Excel, and open the form.',
+    description: 'Review Tulong Dunong applications by batch, export, and manage the public form.',
     href: '/educational/ched',
     icon: BookOpen,
-    pageKey: 'scholarship_applications',
-  },
-  {
-    title: 'Recto Tulong Dunong',
-    description: 'Review applications submitted through the public Tulong Dunong registration form.',
-    href: '/educational/scholarship',
-    icon: Award,
     pageKey: 'scholarship_applications',
   },
 ];
@@ -47,7 +40,7 @@ export default function EducationalHubPage() {
         <h1 className="text-2xl font-bold tracking-tight">Educational</h1>
         <p className="text-muted-foreground">Scholarship programs and educational initiatives.</p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 max-w-2xl">
         {visibleCards.map((card) => (
           <Link key={card.href} href={card.href}>
             <Card className="hover:bg-muted/50 transition-colors cursor-pointer h-full">

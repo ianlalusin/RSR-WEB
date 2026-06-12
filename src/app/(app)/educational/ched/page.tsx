@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { AlertTriangle, Download, ExternalLink, FolderArchive, GraduationCap, Layers, ListChecks, Lock, PauseCircle, PlayCircle, Settings, Users } from 'lucide-react';
+import { AlertTriangle, Download, ExternalLink, FileText, FolderArchive, GraduationCap, Layers, ListChecks, Lock, PauseCircle, PlayCircle, Settings, Users } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage } from '@/lib/access';
 import { useToast } from '@/hooks/use-toast';
@@ -27,12 +27,13 @@ import {
   getScholarshipFormConfig,
   setScholarshipFormSuspended,
   finalizeScholarshipBatch,
+  exportScholarshipApplicationsCSV,
   type ScholarshipApplicationListItem,
 } from '@/app/actions';
-import { DataTable } from '../scholarship/data-table';
-import { columns } from '../scholarship/columns';
-import SubmissionDetailDialog from '../scholarship/_components/submission-detail-dialog';
-import FormSettingsDialog from '../scholarship/_components/form-settings-dialog';
+import { DataTable } from './data-table';
+import { columns } from './columns';
+import SubmissionDetailDialog from './_components/submission-detail-dialog';
+import FormSettingsDialog from './_components/form-settings-dialog';
 
 const PUBLIC_FORM_URL = '/scholarship/apply';
 
@@ -88,6 +89,7 @@ export default function CHEDTulongDunongPage() {
   const [items, setItems] = useState<ScholarshipApplicationListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [zipping, setZipping] = useState(false);
   const [selected, setSelected] = useState<ScholarshipApplicationListItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -199,6 +201,36 @@ export default function CHEDTulongDunongPage() {
       toast({ variant: 'destructive', title: 'Export failed', description: err?.message });
     } finally {
       setExporting(false);
+    }
+  };
+
+  // Exports EVERY application across all batches as a single CSV (the per-batch
+  // Excel export above is scoped to the viewed batch only).
+  const handleExportAllCsv = async () => {
+    if (!user) return;
+    setExportingCsv(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await exportScholarshipApplicationsCSV(token, 'all');
+      if (!res.success) {
+        toast({ variant: 'destructive', title: 'Export failed', description: res.error });
+        return;
+      }
+      // UTF-8 BOM so Excel opens the peso sign correctly.
+      const blob = new Blob(['﻿', res.csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = res.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: 'All applications CSV downloaded' });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Export failed', description: err?.message });
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -434,6 +466,10 @@ export default function CHEDTulongDunongPage() {
                   <Button onClick={handleExportExcel} disabled={exporting} variant="outline">
                     <Download className="mr-2 h-4 w-4" />
                     {exporting ? 'Exporting...' : 'Download Excel'}
+                  </Button>
+                  <Button onClick={handleExportAllCsv} disabled={exportingCsv} variant="outline">
+                    <FileText className="mr-2 h-4 w-4" />
+                    {exportingCsv ? 'Exporting...' : 'Export All (CSV)'}
                   </Button>
                   <Button onClick={handleRegFormsZip} disabled={zipping} variant="outline">
                     <FolderArchive className="mr-2 h-4 w-4" />
