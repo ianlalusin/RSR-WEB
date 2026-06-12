@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, Download, GraduationCap, ListChecks, Users } from 'lucide-react';
+import { AlertTriangle, Download, FolderArchive, GraduationCap, ListChecks, Users } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage } from '@/lib/access';
 import { useToast } from '@/hooks/use-toast';
@@ -23,6 +23,7 @@ export default function ScholarshipDashboardPage() {
   const [items, setItems] = useState<ScholarshipApplicationListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [zipping, setZipping] = useState(false);
   const [selected, setSelected] = useState<ScholarshipApplicationListItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -82,6 +83,37 @@ export default function ScholarshipDashboardPage() {
       toast({ variant: 'destructive', title: 'Export failed', description: err?.message });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleRegFormsZip = async () => {
+    if (!user) return;
+    setZipping(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/scholarship/reg-forms-zip', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast({ variant: 'destructive', title: 'Download failed', description: body.error ?? res.statusText });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.download = `reg-forms-${stamp}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: 'ZIP downloaded' });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Download failed', description: err?.message });
+    } finally {
+      setZipping(false);
     }
   };
 
@@ -166,10 +198,16 @@ export default function ScholarshipDashboardPage() {
               data={items}
               onRowClick={openDetail}
               rightSlot={
-                <Button onClick={handleExport} disabled={exporting} variant="outline">
-                  <Download className="mr-2 h-4 w-4" />
-                  {exporting ? 'Exporting...' : 'Export CSV'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={handleExport} disabled={exporting} variant="outline">
+                    <Download className="mr-2 h-4 w-4" />
+                    {exporting ? 'Exporting...' : 'Export CSV'}
+                  </Button>
+                  <Button onClick={handleRegFormsZip} disabled={zipping} variant="outline">
+                    <FolderArchive className="mr-2 h-4 w-4" />
+                    {zipping ? 'Zipping...' : 'Reg Forms ZIP'}
+                  </Button>
+                </div>
               }
             />
           )}
