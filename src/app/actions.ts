@@ -1632,7 +1632,8 @@ export async function exportScholarshipApplicationsCSV(
             'Parent/Guardian', 'Relationship', 'Parent Contact', 'Income Bracket',
             'Other Scholarship Grant', 'Other Grant Details',
             'School', 'Course', 'Year Level', 'Expected Graduation Year',
-            'Proof of Residency', 'Year Level Points', 'Priority Score', 'Batch', 'Shortlisted', 'Shortlist Reason',
+            'Proof of Residency', 'Has Proof of Residency ID', 'Has Registration Form',
+            'Year Level Points', 'Priority Score', 'Batch', 'Shortlisted', 'Shortlist Reason',
         ];
 
         const lines: string[] = [header.map(csvCell).join(',')];
@@ -1654,6 +1655,8 @@ export async function exportScholarshipApplicationsCSV(
                 otherGrant, r.otherScholarshipDetails ?? '',
                 r.school, r.course, r.yearLevel, r.expectedGraduationYear,
                 r.proofOfResidency?.storagePath ? 'Uploaded' : 'Missing',
+                !!r.proofOfResidency?.storagePath,
+                !!r.registrationForm?.storagePath,
                 yearLevelPriorityPoints(r.yearLevel),
                 priorityScore, r.batchNo ?? 1, r.isShortlisted ? 'YES' : 'NO', r.shortlistReason ?? '',
             ].map(csvCell).join(','));

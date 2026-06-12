@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ref as storageRef, uploadBytes } from 'firebase/storage';
 import { storage } from '@/lib/firebase';
 import { compressImageToBlob } from '@/lib/image-compress';
@@ -109,6 +109,8 @@ type FormValues = z.infer<typeof clientSchema>;
 
 export default function ScholarshipApplyPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isDevPreview = process.env.NODE_ENV === 'development' && searchParams.get('preview') === '1';
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formStatus, setFormStatus] = useState<ScholarshipFormStatus | null>(null);
@@ -208,7 +210,12 @@ export default function ScholarshipApplyPage() {
   }, [cityIsLipa, form]);
 
   // Whether the form is currently accepting answers (admin-configurable window).
+  // ?preview=1 in development bypasses the gate so the form can be inspected locally.
   useEffect(() => {
+    if (isDevPreview) {
+      setStatusLoading(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -224,7 +231,7 @@ export default function ScholarshipApplyPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isDevPreview]);
 
   const courseOptions: string[] = useMemo(() => {
     if (!watchedSchool || isOtherSchool) return [];
