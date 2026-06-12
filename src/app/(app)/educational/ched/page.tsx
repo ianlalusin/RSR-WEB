@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { AlertTriangle, Download, ExternalLink, FileText, FolderArchive, GraduationCap, Layers, ListChecks, Lock, PauseCircle, PlayCircle, Settings, Users } from 'lucide-react';
+import { AlertTriangle, Download, ExternalLink, FileText, FolderArchive, FolderOpen, GraduationCap, Layers, ListChecks, Lock, PauseCircle, PlayCircle, Settings, Users } from 'lucide-react';
 import { useAuth } from '@/components/providers/auth-provider';
 import { canViewPage } from '@/lib/access';
 import { useToast } from '@/hooks/use-toast';
@@ -335,6 +336,12 @@ export default function CHEDTulongDunongPage() {
               {suspending ? 'Suspending…' : 'Suspend Acceptance'}
             </Button>
           )}
+          <Button asChild variant="outline">
+            <Link href="/educational/ched/files">
+              <FolderOpen className="mr-2 h-4 w-4" />
+              Browse Files
+            </Link>
+          </Button>
           <Button variant="outline" onClick={() => setSettingsOpen(true)}>
             <Settings className="mr-2 h-4 w-4" />
             Form Settings

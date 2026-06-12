@@ -1549,6 +1549,13 @@ export async function getScholarshipApplications(actorToken: ActorToken, batchNo
                           contentType: raw.proofOfResidency.contentType ?? 'image/jpeg',
                       }
                     : null,
+                registrationForm: raw.registrationForm
+                    ? {
+                          storagePath: raw.registrationForm.storagePath ?? '',
+                          fileName: raw.registrationForm.fileName ?? '',
+                          contentType: raw.registrationForm.contentType ?? '',
+                      }
+                    : null,
                 barangay: raw.barangay ?? '',
                 hasOtherScholarship: typeof raw.hasOtherScholarship === 'boolean' ? raw.hasOtherScholarship : undefined,
                 otherScholarshipDetails: raw.otherScholarshipDetails ?? '',
