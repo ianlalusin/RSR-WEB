@@ -47,6 +47,10 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
   const [proofLoading, setProofLoading] = useState(false);
   const [proofError, setProofError] = useState<string | null>(null);
 
+  const [regUrl, setRegUrl] = useState<string | null>(null);
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError, setRegError] = useState<string | null>(null);
+
   // Fire-and-forget audit log when a detail dialog opens.
   useEffect(() => {
     if (!open || !application || !user) return;
@@ -86,6 +90,33 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
         if (!cancelled) setProofError('Could not load the uploaded ID.');
       } finally {
         if (!cancelled) setProofLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, application]);
+
+  // Resolve the registration form file to a download URL.
+  useEffect(() => {
+    const path = (application as any)?.registrationForm?.storagePath;
+    if (!open || !path) {
+      setRegUrl(null);
+      setRegError(null);
+      setRegLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setRegLoading(true);
+    setRegError(null);
+    (async () => {
+      try {
+        const url = await getDownloadURL(storageRef(storage, path));
+        if (!cancelled) setRegUrl(url);
+      } catch {
+        if (!cancelled) setRegError('Could not load the registration form.');
+      } finally {
+        if (!cancelled) setRegLoading(false);
       }
     })();
     return () => {
@@ -248,6 +279,46 @@ export default function SubmissionDetailDialog({ application, open, onOpenChange
                         <a href={proofUrl} target="_blank" rel="noopener noreferrer">
                           <ExternalLink className="mr-2 h-4 w-4" />
                           Open / Download ID
+                        </a>
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Not provided.</p>
+              )}
+            </section>
+
+            <Separator />
+
+            <section>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide" style={{ color: '#00A8E8' }}>
+                A.Y. 2025–2026 Registration Form
+              </h3>
+              {(a as any).registrationForm?.storagePath ? (
+                <div className="space-y-3">
+                  {regLoading && (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Loading registration form…
+                    </p>
+                  )}
+                  {regError && <p className="text-sm text-destructive">{regError}</p>}
+                  {regUrl && (
+                    <>
+                      {(a as any).registrationForm?.contentType?.startsWith('image/') && (
+                        <a href={regUrl} target="_blank" rel="noopener noreferrer" className="block w-fit">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={regUrl}
+                            alt="A.Y. 2025–2026 Registration Form"
+                            className="max-h-72 rounded-md border object-contain"
+                          />
+                        </a>
+                      )}
+                      <Button asChild variant="outline" size="sm">
+                        <a href={regUrl} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="mr-2 h-4 w-4" />
+                          Open / Download Registration Form
                         </a>
                       </Button>
                     </>

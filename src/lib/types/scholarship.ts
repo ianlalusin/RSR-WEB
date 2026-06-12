@@ -65,6 +65,9 @@ export interface ScholarshipApplication {
   // Proof of residency — government-issued ID of the student or guardian.
   proofOfResidency?: ScholarshipProof | null;
 
+  // A.Y. 2025–2026 school registration / enrollment form.
+  registrationForm?: ScholarshipProof | null;
+
   // Barangay — only captured (via dropdown) when the city is Lipa City.
   barangay?: string;
 

@@ -1264,6 +1264,15 @@ const scholarshipApplicationSchema = z.object({
         contentType: z.string().trim().max(100).optional().default('image/jpeg'),
     }, { errorMap: () => ({ message: 'Proof of residency (government-issued ID) is required.' }) }),
 
+    // A.Y. 2025–2026 registration / enrollment form.
+    registrationForm: z.object({
+        storagePath: z.string().trim().min(1).max(500).startsWith('Tulong Dunong/', {
+            message: 'Invalid registration form upload.',
+        }),
+        fileName: z.string().trim().max(255).optional().default(''),
+        contentType: z.string().trim().max(100).optional().default(''),
+    }, { errorMap: () => ({ message: 'A.Y. 2025–2026 registration form is required.' }) }),
+
     // Barangay — only meaningful when city is Lipa City; '' otherwise.
     barangay: z.string().trim().max(100).optional().default(''),
 
@@ -1325,6 +1334,29 @@ export async function submitScholarshipApplication(input: unknown) {
             };
         }
         const data = parsed.data;
+
+        // Duplicate guard: reject if any existing application (across all batches) shares
+        // the same email, mobile number, or full name (firstName + lastName).
+        const colRef = adminDb.collection('scholarshipApplications');
+        const [emailSnap, mobileSnap, lastNameSnap] = await Promise.all([
+            colRef.where('email', '==', data.email).limit(1).get(),
+            colRef.where('mobile', '==', data.mobile).limit(1).get(),
+            colRef.where('lastName', '==', data.lastName).limit(20).get(),
+        ]);
+        if (!emailSnap.empty) {
+            return { success: false as const, error: 'An application with this email address has already been submitted. Each person may only apply once.' };
+        }
+        if (!mobileSnap.empty) {
+            return { success: false as const, error: 'An application with this mobile number has already been submitted. Each person may only apply once.' };
+        }
+        const lowerFirst = data.firstName.toLowerCase().trim();
+        const nameExists = lastNameSnap.docs.some((doc) => {
+            const d = doc.data();
+            return typeof d.firstName === 'string' && d.firstName.toLowerCase().trim() === lowerFirst;
+        });
+        if (nameExists) {
+            return { success: false as const, error: 'An application with this name has already been submitted. Each person may only apply once.' };
+        }
 
         // Route "Other" selections back to the canonical list where the typed
         // value actually matches a qualified school/course — applicants often
@@ -1392,6 +1424,12 @@ export async function submitScholarshipApplication(input: unknown) {
                 storagePath: data.proofOfResidency.storagePath,
                 fileName: data.proofOfResidency.fileName ?? '',
                 contentType: data.proofOfResidency.contentType ?? 'image/jpeg',
+            },
+
+            registrationForm: {
+                storagePath: data.registrationForm.storagePath,
+                fileName: data.registrationForm.fileName ?? '',
+                contentType: data.registrationForm.contentType ?? '',
             },
 
             barangay: data.barangay ?? '',

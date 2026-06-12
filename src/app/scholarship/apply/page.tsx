@@ -117,6 +117,10 @@ export default function ScholarshipApplyPage() {
   const [proofError, setProofError] = useState<string | null>(null);
   const proofInputRef = useRef<HTMLInputElement>(null);
 
+  const [regFile, setRegFile] = useState<File | null>(null);
+  const [regError, setRegError] = useState<string | null>(null);
+  const regInputRef = useRef<HTMLInputElement>(null);
+
   const handleProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
     if (file && !file.type.startsWith('image/')) {
@@ -126,6 +130,17 @@ export default function ScholarshipApplyPage() {
     }
     setProofError(null);
     setProofFile(file);
+  };
+
+  const handleRegChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    if (file && !file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      setRegFile(null);
+      setRegError('Please upload an image or PDF of your registration form.');
+      return;
+    }
+    setRegError(null);
+    setRegFile(file);
   };
 
   const form = useForm<FormValues>({
@@ -254,14 +269,41 @@ export default function ScholarshipApplyPage() {
       });
       return;
     }
+    if (!regFile) {
+      setRegError('A.Y. 2025–2026 registration form is required.');
+      toast({
+        variant: 'destructive',
+        title: 'Registration form required',
+        description: 'Please upload your A.Y. 2025–2026 school registration or enrollment form.',
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      // Compress the ID image and upload it to a public-create-only Storage path
-      // BEFORE writing the application. Only the resulting path reaches the server.
-      const blob = await compressImageToBlob(proofFile);
-      const path = `Tulong Dunong/${crypto.randomUUID()}/${Date.now()}.jpg`;
-      await uploadBytes(storageRef(storage, path), blob, { contentType: 'image/jpeg' });
+      // Upload proof of residency (image only, compress first).
+      const proofBlob = await compressImageToBlob(proofFile);
+      const proofPath = `Tulong Dunong/${crypto.randomUUID()}/${Date.now()}.jpg`;
+
+      // Upload registration form — compress if image, upload directly if PDF.
+      let regPath: string;
+      let regContentType: string;
+      let regUpload: Promise<unknown>;
+      if (regFile.type === 'application/pdf') {
+        regPath = `Tulong Dunong/${crypto.randomUUID()}/reg-${Date.now()}.pdf`;
+        regContentType = 'application/pdf';
+        regUpload = uploadBytes(storageRef(storage, regPath), regFile, { contentType: 'application/pdf' });
+      } else {
+        const regBlob = await compressImageToBlob(regFile);
+        regPath = `Tulong Dunong/${crypto.randomUUID()}/reg-${Date.now()}.jpg`;
+        regContentType = 'image/jpeg';
+        regUpload = uploadBytes(storageRef(storage, regPath), regBlob, { contentType: 'image/jpeg' });
+      }
+
+      await Promise.all([
+        uploadBytes(storageRef(storage, proofPath), proofBlob, { contentType: 'image/jpeg' }),
+        regUpload,
+      ]);
 
       const result = await submitScholarshipApplication({
         ...values,
@@ -270,9 +312,14 @@ export default function ScholarshipApplyPage() {
         hasOtherScholarship: values.hasOtherScholarship === 'Yes',
         otherScholarshipDetails: values.hasOtherScholarship === 'Yes' ? values.otherScholarshipDetails : '',
         proofOfResidency: {
-          storagePath: path,
+          storagePath: proofPath,
           fileName: proofFile.name,
           contentType: 'image/jpeg',
+        },
+        registrationForm: {
+          storagePath: regPath,
+          fileName: regFile.name,
+          contentType: regContentType,
         },
       });
       if (!result.success) {
@@ -875,10 +922,47 @@ export default function ScholarshipApplyPage() {
             </CardContent>
           </Card>
 
-          {/* 6. Data Privacy Consent */}
+          {/* 6. A.Y. 2025–2026 Registration Form */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">6. Data Privacy Consent</CardTitle>
+              <CardTitle className="text-lg">6. A.Y. 2025–2026 Registration Form</CardTitle>
+              <CardDescription>
+                Upload a clear photo or scan of your official school registration or enrollment form
+                for Academic Year 2025–2026 (Certificate of Registration / COR). Accepted formats:
+                image or PDF.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                <FormLabel htmlFor="registration-form">
+                  COR / Registration Form <span className="text-destructive">*</span>
+                </FormLabel>
+                <Input
+                  id="registration-form"
+                  ref={regInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={handleRegChange}
+                  className="cursor-pointer"
+                />
+                {regFile && !regError && (
+                  <p className="text-sm text-muted-foreground">
+                    Selected: <span className="font-medium break-all">{regFile.name}</span>
+                  </p>
+                )}
+                {regError && <p className="text-sm font-medium text-destructive">{regError}</p>}
+                <p className="text-xs text-muted-foreground">
+                  Accepted: image files (JPG, PNG, etc.) or PDF. Images are automatically compressed
+                  to ≤1 MB. Make sure the school name, student name, and A.Y. 2025–2026 are visible.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 7. Data Privacy Consent */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">7. Data Privacy Consent</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <Alert
