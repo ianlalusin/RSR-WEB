@@ -14,7 +14,7 @@ import { auth, db, googleProvider } from '@/lib/firebase';
 import type { UserProfile, Role, RoleListDoc } from '@/lib/types';
 import { doc, onSnapshot, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { Landmark } from 'lucide-react';
-import { defaultAccess, platformAdminAccess } from '@/lib/access';
+import { defaultAccess } from '@/lib/access';
 
 interface AuthContextType {
   user: User | null;
@@ -96,22 +96,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         await firebaseUser.reload();
         const freshUser = auth.currentUser!;
 
-        // Build profile without undefined fields — Firestore SDK v9 throws on undefined values.
+        // Self-provision a MINIMAL pending doc. The Firestore create rule only
+        // permits a self-created users doc when isActive == false and it carries no
+        // access / roleId / socmedRole (an admin assigns those later via Admin SDK).
+        // Previously this sent `access` (and isActive:true + roleId for admins), so
+        // the create was rejected with permission-denied and pending signups never
+        // got a users doc — making them invisible in the admin Pending Review list.
+        // (Admin status is driven by the platformAdmin custom claim, not this doc;
+        // the in-memory sanitizer below fills access until an admin approves.)
         const newUserProfile: Record<string, unknown> = {
           uid: freshUser.uid,
           email: freshUser.email,
           displayName: freshUser.displayName,
           photoURL: freshUser.photoURL ?? null,
-          isActive: isAdmin,
-          access: isAdmin ? platformAdminAccess : defaultAccess,
+          isActive: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         };
-
-        if (isAdmin) {
-          newUserProfile.departmentId = 'admin';
-          newUserProfile.roleId = 'platformAdmin';
-        }
 
         try {
           await setDoc(userRef, newUserProfile);

@@ -85,45 +85,55 @@ export default function UserAccessRow({ user, actor, departments, roles, distric
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} className="border rounded-lg">
-      <CollapsibleTrigger asChild>
-        <button className="flex items-center justify-between w-full p-4 text-left hover:bg-muted/50 transition-colors">
-          <div className="flex items-center gap-4">
-            <Avatar>
-              <AvatarImage src={user.photoURL || ''} alt={user.displayName || 'User'} />
-              <AvatarFallback>{getInitials(user.displayName)}</AvatarFallback>
-            </Avatar>
-            <div className='flex flex-col items-start'>
-              <span className="font-medium">{user.displayName}</span>
-              <span className="text-sm text-muted-foreground">{user.email}</span>
+      {/* The trigger button wraps only non-interactive content (avatar, name, badges).
+          The Approve button and chevron toggle are siblings OUTSIDE it — a <button>
+          may not contain another <button>. */}
+      <div className="flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors">
+        <CollapsibleTrigger asChild>
+          <button className="flex flex-1 items-center justify-between gap-4 text-left">
+            <div className="flex items-center gap-4">
+              <Avatar>
+                <AvatarImage src={user.photoURL || ''} alt={user.displayName || 'User'} />
+                <AvatarFallback>{getInitials(user.displayName)}</AvatarFallback>
+              </Avatar>
+              <div className='flex flex-col items-start'>
+                <span className="font-medium">{user.displayName}</span>
+                <span className="text-sm text-muted-foreground">{user.email}</span>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {userDepartment && <Badge variant="secondary">{userDepartment.name}</Badge>}
-            {userRole && <Badge variant="outline">{userRole.name}</Badge>}
-            <Badge variant={user.isActive ? 'default' : 'secondary'} className={cn('border-transparent', user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')}>
-              {user.isActive ? 'Active' : 'Pending'}
-            </Badge>
-            {canEdit && !user.isActive && (
-              <ApproveUserDialog
-                user={user}
-                departments={departments}
-                roles={roles}
-                onSuccess={onSuccess}
+            <div className="flex items-center gap-3">
+              {userDepartment && <Badge variant="secondary">{userDepartment.name}</Badge>}
+              {userRole && <Badge variant="outline">{userRole.name}</Badge>}
+              <Badge variant={user.isActive ? 'default' : 'secondary'} className={cn('border-transparent', user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')}>
+                {user.isActive ? 'Active' : 'Pending'}
+              </Badge>
+            </div>
+          </button>
+        </CollapsibleTrigger>
+        <div className="flex items-center gap-3">
+          {canEdit && !user.isActive && (
+            <ApproveUserDialog
+              user={user}
+              departments={departments}
+              roles={roles}
+              onSuccess={onSuccess}
+            >
+              <Button
+                size="sm"
+                className="bg-green-600 hover:bg-green-700 h-7 px-2 text-xs"
               >
-                <Button
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700 h-7 px-2 text-xs"
-                  onClick={e => e.stopPropagation()}
-                >
-                  <UserCheck className="mr-1 h-3 w-3" />
-                  Approve
-                </Button>
-              </ApproveUserDialog>
-            )}
-            <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
-          </div>
-        </button>
-      </CollapsibleTrigger>
+                <UserCheck className="mr-1 h-3 w-3" />
+                Approve
+              </Button>
+            </ApproveUserDialog>
+          )}
+          <CollapsibleTrigger asChild>
+            <button className="text-muted-foreground" aria-label="Toggle details">
+              <ChevronsUpDown className="h-4 w-4" />
+            </button>
+          </CollapsibleTrigger>
+        </div>
+      </div>
       <CollapsibleContent>
         <div className="p-4 pt-0">
           <Separator className="mb-6" />
