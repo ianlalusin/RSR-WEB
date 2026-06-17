@@ -10,26 +10,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 600;
 
 const BUCKET = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!;
-
-/** Cap concurrent Storage existence checks so we don't fan out 500 calls at once. */
-async function filterExisting<T>(items: T[], path: (t: T) => string, bucket: ReturnType<typeof adminStorage.bucket>, limit = 25): Promise<T[]> {
-    const out: T[] = [];
-    for (let i = 0; i < items.length; i += limit) {
-        const chunk = items.slice(i, i + limit);
-        const flags = await Promise.all(
-            chunk.map(async (t) => {
-                try {
-                    const [exists] = await bucket.file(path(t)).exists();
-                    return exists;
-                } catch {
-                    return false;
-                }
-            }),
-        );
-        chunk.forEach((t, j) => flags[j] && out.push(t));
-    }
-    return out;
-}
+const DOWNLOAD_CONCURRENCY = 8;
 
 export async function GET(req: NextRequest) {
     const token = req.headers.get('authorization')?.replace('Bearer ', '');
@@ -66,50 +47,70 @@ export async function GET(req: NextRequest) {
             .filter((d) => !!d.data().registrationForm?.storagePath)
             .sort((a, b) => (b.data().createdAt?.toMillis?.() ?? 0) - (a.data().createdAt?.toMillis?.() ?? 0));
 
-        // Skip files that no longer exist so one missing object can't abort the
-        // whole stream (we can't change the HTTP status once streaming starts).
-        const present = await filterExisting(docs, (d) => d.data().registrationForm.storagePath, bucket);
-
-        // STREAM the zip: archiver pulls one file at a time from Storage and writes
-        // it straight to the response, so peak memory is ~one file — never the whole
-        // batch. (The old version buffered every file + the full zip in memory, which
-        // OOM-killed the container -> 503 on large batches.) `store` = no compression,
-        // since registration forms are already-compressed JPG/PDF.
+        // Stream the zip to the response so we never hold the whole archive in memory.
+        // IMPORTANT: feed archiver from fully-downloaded BUFFERS (download() resolves or
+        // rejects cleanly), NOT from piped Storage read streams — piping lazy read
+        // streams stalls partway and aborts the archive, producing a truncated zip with
+        // no central directory (extracts as "empty"). `store` = no compression since
+        // forms are already-compressed JPG/PDF.
         const archive = archiver('zip', { store: true });
-        archive.on('error', (err) => archive.destroy(err));
-
-        const nameCount = new Map<string, number>();
-        for (const doc of present) {
-            const r = doc.data();
-            const storagePath: string = r.registrationForm.storagePath;
-            const contentType: string = r.registrationForm?.contentType ?? '';
-            const ext = contentType === 'application/pdf' ? '.pdf' : '.jpg';
-
-            const mi = r.middleName?.trim()
-                ? ' ' + r.middleName.trim().charAt(0).toUpperCase() + '.'
-                : '';
-            const baseName = `${r.lastName ?? ''}, ${r.firstName ?? ''}${mi}`;
-
-            // Deduplicate: Santos, Juan D -> Santos, Juan D (2) on collision.
-            const count = (nameCount.get(baseName) ?? 0) + 1;
-            nameCount.set(baseName, count);
-            const fileName = count === 1 ? `${baseName}${ext}` : `${baseName} (${count})${ext}`;
-
-            archive.append(bucket.file(storagePath).createReadStream(), { name: fileName });
-        }
-        archive.finalize();
+        archive.on('error', (err) => console.error('reg-forms-zip archive error:', err));
 
         const stamp = new Date().toISOString().slice(0, 10);
         const suffix = batchNo && !isNaN(batchNo) ? `batch${batchNo}-` : '';
         const body = Readable.toWeb(archive) as unknown as ReadableStream<Uint8Array>;
 
-        return new NextResponse(body, {
+        const response = new NextResponse(body, {
             headers: {
                 'Content-Type': 'application/zip',
                 'Content-Disposition': `attachment; filename="reg-forms-${suffix}${stamp}.zip"`,
                 'Cache-Control': 'no-store',
             },
         });
+
+        // Drive the archive after the response is wired up. Download files in ordered
+        // chunks (bounded concurrency for speed), append each buffer, then finalize so
+        // the central directory is always written.
+        (async () => {
+            try {
+                const nameCount = new Map<string, number>();
+                for (let i = 0; i < docs.length; i += DOWNLOAD_CONCURRENCY) {
+                    const group = docs.slice(i, i + DOWNLOAD_CONCURRENCY);
+                    const fetched = await Promise.all(
+                        group.map(async (doc) => {
+                            const r = doc.data();
+                            try {
+                                const [buf] = await bucket.file(r.registrationForm.storagePath).download();
+                                return { r, buf };
+                            } catch {
+                                // Skip a missing/unreadable object rather than aborting the zip.
+                                return null;
+                            }
+                        }),
+                    );
+                    for (const item of fetched) {
+                        if (!item) continue;
+                        const { r, buf } = item;
+                        const contentType: string = r.registrationForm?.contentType ?? '';
+                        const ext = contentType === 'application/pdf' ? '.pdf' : '.jpg';
+                        const mi = r.middleName?.trim()
+                            ? ' ' + r.middleName.trim().charAt(0).toUpperCase() + '.'
+                            : '';
+                        const baseName = `${r.lastName ?? ''}, ${r.firstName ?? ''}${mi}`;
+                        const count = (nameCount.get(baseName) ?? 0) + 1;
+                        nameCount.set(baseName, count);
+                        const fileName = count === 1 ? `${baseName}${ext}` : `${baseName} (${count})${ext}`;
+                        archive.append(buf, { name: fileName });
+                    }
+                }
+                await archive.finalize();
+            } catch (err) {
+                console.error('reg-forms-zip build error:', err);
+                archive.abort();
+            }
+        })();
+
+        return response;
     } catch (err: any) {
         console.error('reg-forms-zip error:', err);
         return NextResponse.json(
