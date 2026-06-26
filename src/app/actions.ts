@@ -6,7 +6,8 @@ import {
 } from '@/ai/flows/generate-barangay-profiles';
 import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { ProjectRecord, Barangay, BarangayCycle, BarangayCycleStats, CaptainProfile, UserProfile, Department, Role, MedicalRecord, Hospital, RequestRecord, RequestStatus, TaskRecord, TaskStatus } from '@/lib/types';
+import { ProjectRecord, Barangay, BarangayCycle, BarangayCycleStats, CaptainProfile, UserProfile, Department, Role, MedicalRecord, Hospital, RequestRecord, RequestStatus, TaskRecord, TaskStatus, AuditLog } from '@/lib/types';
+import type { Query } from 'firebase-admin/firestore';
 import type {
   ScholarshipApplication,
   ScholarshipSex,
@@ -1008,6 +1009,179 @@ export async function getLipaCityBarangays(): Promise<
     } catch (error: any) {
         console.error('getLipaCityBarangays error:', error);
         return { success: false, error: error?.message ?? 'Failed to load barangays.' };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard summary (stat cards + value-by-district chart + recent activity)
+// ---------------------------------------------------------------------------
+
+export interface DashboardDistrictDatum {
+    name: string;
+    value: number;   // total disbursed (sum of projectRecords.valueAmount)
+    records: number; // project records touching this district
+}
+
+export interface DashboardActivityItem {
+    id: string;
+    type: string;        // human entity label, e.g. "Barangay"
+    description: string; // e.g. "admin@... created a barangay"
+    atMs: number;        // event time in epoch millis (serializable)
+}
+
+export interface DashboardData {
+    totalBarangays: number;
+    totalCoordinators: number;
+    assistanceRecords: number; // medicalRecords + projectRecords
+    totalDisbursed: number;    // sum of projectRecords.valueAmount
+    districts: DashboardDistrictDatum[];
+    recentActivity: DashboardActivityItem[];
+}
+
+const DASHBOARD_ENTITY_LABELS: Record<string, string> = {
+    user: 'User', barangay: 'Barangay', barangayCycle: 'Barangay Cycle',
+    captainProfile: 'Captain Profile', projectRecord: 'Project', medicalRecord: 'Medical Record',
+    department: 'Department', role: 'Role', hospital: 'Hospital', request: 'Request',
+    task: 'Task', system: 'System', scholarshipApplication: 'Scholarship Application',
+};
+
+const DASHBOARD_ACTION_VERBS: Record<string, string> = {
+    access_update: 'updated access for', create: 'created', update: 'updated',
+    delete: 'deleted', bulk_update: 'bulk-updated', generate_ai_profile: 'generated AI profiles for',
+    status_change: 'changed the status of', view: 'viewed', export: 'exported',
+};
+
+function dashboardEntityLabel(t?: string): string {
+    return (t && DASHBOARD_ENTITY_LABELS[t]) || 'Activity';
+}
+
+function describeAuditLog(a: Partial<AuditLog>): string {
+    const who = a.actorEmail || 'A user';
+    const verb = (a.action && DASHBOARD_ACTION_VERBS[a.action]) || 'updated';
+    const what = dashboardEntityLabel(a.entityType).toLowerCase();
+    return `${who} ${verb} a ${what}`;
+}
+
+async function readRecentActivity(): Promise<DashboardActivityItem[]> {
+    const snap = await adminDb.collection('auditLogs').orderBy('timestamp', 'desc').limit(8).get();
+    return snap.docs.map((d) => {
+        const a = d.data() as Partial<AuditLog>;
+        const ts = a.timestamp as { toMillis?: () => number } | undefined;
+        return {
+            id: d.id,
+            type: dashboardEntityLabel(a.entityType),
+            description: describeAuditLog(a),
+            atMs: typeof ts?.toMillis === 'function' ? ts.toMillis() : 0,
+        };
+    });
+}
+
+/**
+ * READ — aggregated dashboard summary. Uses cheap count() aggregation for the
+ * stat cards and a slim (.select) projectRecords read for the per-district chart
+ * and total disbursed. District-scoped for non-admins (mirrors the barangays page):
+ * platformAdmin/OIC see everything; everyone else is limited to their assigned
+ * districtIds, and a scoped user with no districts sees zeroes.
+ */
+export async function getDashboardData(
+    actorToken: ActorToken,
+): Promise<{ success: true; data: DashboardData } | { success: false; error: string }> {
+    try {
+        const actor = await resolveActor(actorToken);
+
+        if (!canViewPage(actor.profile, 'dashboard', { isPlatformAdminClaim: actor.isPlatformAdmin })) {
+            return { success: false, error: 'You do not have permission to view the dashboard.' };
+        }
+
+        const profile = actor.profile;
+        const seesAll =
+            actor.isPlatformAdmin || profile?.roleId === 'platformAdmin' || profile?.roleId === 'oic';
+        const districtIds = profile?.access?.districtIds ?? [];
+        const scoped = !seesAll;
+
+        // Coordinators are an org-wide count, not district-scoped.
+        const totalCoordinators = (
+            await adminDb.collection('users').where('roleId', '==', 'coordinator').count().get()
+        ).data().count;
+
+        // A scoped user with no assigned districts has nothing to summarise.
+        if (scoped && districtIds.length === 0) {
+            return {
+                success: true,
+                data: {
+                    totalBarangays: 0,
+                    totalCoordinators,
+                    assistanceRecords: 0,
+                    totalDisbursed: 0,
+                    districts: [],
+                    recentActivity: await readRecentActivity(),
+                },
+            };
+        }
+
+        // district id -> name map from the denormalized barangay list.
+        const listSnap = await adminDb.collection('lists').doc('barangays').get();
+        const listItems = (listSnap.data()?.barangays ?? {}) as Record<
+            string,
+            { districtId?: string; districtName?: string }
+        >;
+        const districtNames = new Map<string, string>();
+        for (const item of Object.values(listItems)) {
+            if (item?.districtId && !districtNames.has(item.districtId)) {
+                districtNames.set(item.districtId, item.districtName || item.districtId);
+            }
+        }
+
+        // --- Barangays count ---
+        let barangaysQ: Query = adminDb.collection('barangays');
+        if (scoped) barangaysQ = barangaysQ.where('districtId', 'in', districtIds);
+        const totalBarangays = (await barangaysQ.count().get()).data().count;
+
+        // --- Medical records count ---
+        let medicalQ: Query = adminDb.collection('medicalRecords');
+        if (scoped) medicalQ = medicalQ.where('districtId', 'in', districtIds);
+        const medicalCount = (await medicalQ.count().get()).data().count;
+
+        // --- Project records: slim read drives count + total + per-district ---
+        let projectQ: Query = adminDb.collection('projectRecords');
+        if (scoped) projectQ = projectQ.where('districtIds', 'array-contains-any', districtIds);
+        const projectSnap = await projectQ.select('districtIds', 'valueAmount').get();
+
+        let totalDisbursed = 0;
+        const perDistrict = new Map<string, { value: number; records: number }>();
+        for (const docSnap of projectSnap.docs) {
+            const d = docSnap.data() as { districtIds?: string[]; valueAmount?: number };
+            const value = typeof d.valueAmount === 'number' ? d.valueAmount : 0;
+            totalDisbursed += value; // each project counted once toward the headline total
+            const ids = Array.isArray(d.districtIds) ? d.districtIds : [];
+            for (const id of ids) {
+                if (scoped && !districtIds.includes(id)) continue; // only the actor's districts
+                const cur = perDistrict.get(id) ?? { value: 0, records: 0 };
+                cur.value += value;
+                cur.records += 1;
+                perDistrict.set(id, cur);
+            }
+        }
+        const projectCount = projectSnap.size;
+
+        const districts: DashboardDistrictDatum[] = Array.from(perDistrict.entries())
+            .map(([id, agg]) => ({ name: districtNames.get(id) ?? id, value: agg.value, records: agg.records }))
+            .sort((a, b) => b.value - a.value);
+
+        return {
+            success: true,
+            data: {
+                totalBarangays,
+                totalCoordinators,
+                assistanceRecords: medicalCount + projectCount,
+                totalDisbursed,
+                districts,
+                recentActivity: await readRecentActivity(),
+            },
+        };
+    } catch (error: any) {
+        console.error('getDashboardData error:', error);
+        return { success: false, error: error?.message ?? 'Failed to load dashboard data.' };
     }
 }
 
