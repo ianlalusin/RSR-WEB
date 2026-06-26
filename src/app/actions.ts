@@ -5,8 +5,8 @@ import {
   type GenerateBarangayProfilesInput,
 } from '@/ai/flows/generate-barangay-profiles';
 import { adminDb } from '@/lib/firebase-admin';
-import { FieldValue } from 'firebase-admin/firestore';
-import { ProjectRecord, Barangay, BarangayCycle, BarangayCycleStats, CaptainProfile, UserProfile, Department, Role, MedicalRecord, Hospital, RequestRecord, RequestStatus, TaskRecord, TaskStatus, AuditLog } from '@/lib/types';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { ProjectRecord, Barangay, BarangayCycle, BarangayCycleStats, CaptainProfile, UserProfile, Department, Role, MedicalRecord, Hospital, RequestRecord, RequestStatus, TaskRecord, TaskStatus, AuditLog, AnalyticsData } from '@/lib/types';
 import type { Query } from 'firebase-admin/firestore';
 import type {
   ScholarshipApplication,
@@ -1182,6 +1182,99 @@ export async function getDashboardData(
     } catch (error: any) {
         console.error('getDashboardData error:', error);
         return { success: false, error: error?.message ?? 'Failed to load dashboard data.' };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Analytics summary (period-scoped projects + cumulative org metrics + chart)
+// ---------------------------------------------------------------------------
+
+export type AnalyticsPeriod = 'daily' | 'weekly' | 'yearly';
+
+// App Hosting runs in UTC; the office operates in PH time (UTC+8, no DST).
+// Compute period boundaries against PH wall-clock so "today"/"this year" align.
+const PH_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+function analyticsPeriodStart(period: AnalyticsPeriod): Timestamp {
+    const nowPh = new Date(Date.now() + PH_OFFSET_MS); // shift so UTC getters read PH wall-clock
+    let startPhWall: Date;
+    if (period === 'daily') {
+        startPhWall = new Date(Date.UTC(nowPh.getUTCFullYear(), nowPh.getUTCMonth(), nowPh.getUTCDate()));
+    } else if (period === 'weekly') {
+        startPhWall = new Date(Date.UTC(nowPh.getUTCFullYear(), nowPh.getUTCMonth(), nowPh.getUTCDate() - 6));
+    } else {
+        startPhWall = new Date(Date.UTC(nowPh.getUTCFullYear(), 0, 1));
+    }
+    return Timestamp.fromDate(new Date(startPhWall.getTime() - PH_OFFSET_MS)); // back to the real UTC instant
+}
+
+/**
+ * READ — analytics overview for the /analytics page. Org-wide (not district-scoped):
+ * the page is admin/OIC/office-admin only. The `period` scopes the Projects count
+ * (records with an eventDate inside the Today / past-7-days / this-year window);
+ * users, departments and "brgys w/ profile" are current cumulative totals.
+ */
+export async function getAnalyticsData(
+    actorToken: ActorToken,
+    period: AnalyticsPeriod,
+): Promise<{ success: true; data: AnalyticsData } | { success: false; error: string }> {
+    try {
+        const actor = await resolveActor(actorToken);
+
+        if (!canViewPage(actor.profile, 'analytics', { isPlatformAdminClaim: actor.isPlatformAdmin })) {
+            return { success: false, error: 'You do not have permission to view analytics.' };
+        }
+
+        // Barangays with a filled-in profile (current cycle + stats entered).
+        const brgyListSnap = await adminDb.collection('lists').doc('barangays').get();
+        const brgyItems = Object.values(
+            (brgyListSnap.data()?.barangays ?? {}) as Record<
+                string,
+                { currentCycle?: string; votingPopulation?: number; rsrVotes?: number }
+            >,
+        );
+        const brgyWithProfileCount = brgyItems.filter(
+            (b) => !!b?.currentCycle && (Number(b?.votingPopulation) > 0 || Number(b?.rsrVotes) > 0),
+        ).length;
+
+        // Departments (cumulative) from the denormalized list doc.
+        const deptListSnap = await adminDb.collection('lists').doc('departments').get();
+        const deptItems = (deptListSnap.data()?.departments ?? {}) as Record<string, { name?: string }>;
+        const departmentCount = Object.keys(deptItems).length;
+
+        // Active users — one slim read drives both the user count and the per-department chart.
+        const usersSnap = await adminDb
+            .collection('users')
+            .where('isActive', '==', true)
+            .select('departmentId')
+            .get();
+        const userCount = usersSnap.size;
+        const memberCounts = new Map<string, number>();
+        for (const docSnap of usersSnap.docs) {
+            const dep = (docSnap.data() as { departmentId?: string }).departmentId;
+            if (!dep) continue;
+            memberCounts.set(dep, (memberCounts.get(dep) ?? 0) + 1);
+        }
+        const departments = Object.entries(deptItems)
+            .map(([id, info]) => ({ name: info?.name ?? id, memberCount: memberCounts.get(id) ?? 0 }))
+            .sort((a, b) => b.memberCount - a.memberCount);
+
+        // Projects in the selected period (by eventDate).
+        const projectCount = (
+            await adminDb
+                .collection('projectRecords')
+                .where('eventDate', '>=', analyticsPeriodStart(period))
+                .count()
+                .get()
+        ).data().count;
+
+        return {
+            success: true,
+            data: { brgyWithProfileCount, userCount, departmentCount, projectCount, departments },
+        };
+    } catch (error: any) {
+        console.error('getAnalyticsData error:', error);
+        return { success: false, error: error?.message ?? 'Failed to load analytics data.' };
     }
 }
 
