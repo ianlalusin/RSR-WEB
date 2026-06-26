@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
 import AppLayout from '@/components/layout/app-layout';
@@ -53,15 +54,17 @@ function StatCard({
   caption,
   icon,
   loading,
+  href,
 }: {
   title: string;
   value: string;
   caption: string;
   icon: React.ReactNode;
   loading: boolean;
+  href?: string;
 }) {
-  return (
-    <Card>
+  const card = (
+    <Card className={href ? 'h-full transition-colors hover:border-primary/50 hover:bg-muted/50' : undefined}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
         {icon}
@@ -76,6 +79,17 @@ function StatCard({
       </CardContent>
     </Card>
   );
+
+  if (!href) return card;
+
+  return (
+    <Link
+      href={href}
+      className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    >
+      {card}
+    </Link>
+  );
 }
 
 function Dashboard() {
@@ -85,6 +99,8 @@ function Dashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const canView = canViewPage(userProfile, 'dashboard', { isPlatformAdminClaim });
+  const linkIfAllowed = (page: Parameters<typeof canViewPage>[1], href: string) =>
+    canViewPage(userProfile, page, { isPlatformAdminClaim }) ? href : undefined;
 
   const load = useCallback(async () => {
     if (!canView || !user) {
@@ -136,6 +152,7 @@ function Dashboard() {
           caption="Registered barangays"
           icon={<Landmark className="h-4 w-4 text-muted-foreground" />}
           loading={loading}
+          href={linkIfAllowed('barangays_list', '/barangays')}
         />
         <StatCard
           title="Total Coordinators"
@@ -143,6 +160,7 @@ function Dashboard() {
           caption="Active coordinator accounts"
           icon={<Users className="h-4 w-4 text-muted-foreground" />}
           loading={loading}
+          href={linkIfAllowed('admin_users', '/admin/users')}
         />
         <StatCard
           title="Assistance Records"
@@ -150,6 +168,7 @@ function Dashboard() {
           caption="Medical + project records"
           icon={<ClipboardList className="h-4 w-4 text-muted-foreground" />}
           loading={loading}
+          href={linkIfAllowed('projects_medical', '/medical')}
         />
         <StatCard
           title="Total Disbursed"

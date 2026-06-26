@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Bar, BarChart as RechartsBarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -22,14 +23,16 @@ function StatCard({
     value,
     icon,
     loading,
+    href,
 }: {
     title: string;
     value: number | undefined;
     icon: React.ReactNode;
     loading: boolean;
+    href?: string;
 }) {
-    return (
-        <Card>
+    const card = (
+        <Card className={href ? 'h-full transition-colors hover:border-primary/50 hover:bg-muted/50' : undefined}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">{title}</CardTitle>
                 {icon}
@@ -43,16 +46,29 @@ function StatCard({
             </CardContent>
         </Card>
     );
+
+    if (!href) return card;
+
+    return (
+        <Link
+            href={href}
+            className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+            {card}
+        </Link>
+    );
 }
 
 function AnalyticsDashboard({
     data,
     period,
     loading,
+    hrefs,
 }: {
     data?: AnalyticsData;
     period: AnalyticsPeriod;
     loading: boolean;
+    hrefs: { barangays?: string; users?: string; departments?: string };
 }) {
     return (
         <div className="grid gap-6 mt-4">
@@ -62,18 +78,21 @@ function AnalyticsDashboard({
                     value={data?.brgyWithProfileCount}
                     icon={<Landmark className="h-4 w-4 text-muted-foreground" />}
                     loading={loading}
+                    href={hrefs.barangays}
                 />
                 <StatCard
                     title="Active Users"
                     value={data?.userCount}
                     icon={<Users className="h-4 w-4 text-muted-foreground" />}
                     loading={loading}
+                    href={hrefs.users}
                 />
                 <StatCard
                     title="Departments"
                     value={data?.departmentCount}
                     icon={<Briefcase className="h-4 w-4 text-muted-foreground" />}
                     loading={loading}
+                    href={hrefs.departments}
                 />
                 <StatCard
                     title={`Projects (${PERIOD_LABELS[period]})`}
@@ -126,6 +145,11 @@ function AccessDenied() {
 export default function AnalyticsPage() {
     const { userProfile, user, isPlatformAdminClaim } = useAuth();
     const canView = canViewPage(userProfile, 'analytics', { isPlatformAdminClaim });
+    const hrefs = {
+        barangays: canViewPage(userProfile, 'barangays_list', { isPlatformAdminClaim }) ? '/barangays' : undefined,
+        users: canViewPage(userProfile, 'admin_users', { isPlatformAdminClaim }) ? '/admin/users' : undefined,
+        departments: canViewPage(userProfile, 'organization_departments', { isPlatformAdminClaim }) ? '/organization' : undefined,
+    };
 
     const [period, setPeriod] = useState<AnalyticsPeriod>('weekly');
     const [byPeriod, setByPeriod] = useState<Partial<Record<AnalyticsPeriod, AnalyticsData>>>({});
@@ -197,6 +221,7 @@ export default function AnalyticsPage() {
                 data={byPeriod[period]}
                 period={period}
                 loading={loadingPeriod === period || !byPeriod[period]}
+                hrefs={hrefs}
             />
         </div>
     );
