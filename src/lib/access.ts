@@ -1,5 +1,8 @@
-'use client';
-
+// NOTE: No 'use client' directive — this module is pure permission logic (no
+// hooks, no browser APIs), so it must stay universal. It is imported both by
+// client components AND by server actions (src/app/actions.ts), and a 'use
+// client' boundary here makes calling these functions server-side throw
+// ("Attempted to call canViewPage() from the server").
 import type { UserProfile, PageKey, AccessLevel, Role } from './types';
 
 export const ALL_PAGE_KEYS: PageKey[] = [
