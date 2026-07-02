@@ -16,7 +16,6 @@ import { addRequest } from '@/app/actions';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query } from 'firebase/firestore';
 import { Loader2 } from 'lucide-react';
-import { Timestamp } from 'firebase/firestore';
 
 const SECTOR_OPTIONS = [
   { value: 'medical', label: 'Medical' },
@@ -123,8 +122,12 @@ export default function RequestFormDialog({ children }: { children: React.ReactN
         resoTitle: values.resoTitle,
         resoNumber: values.resoNumber,
         description: values.description,
-        dateReceived: Timestamp.fromDate(new Date(values.dateReceived)),
-        dateFiled: Timestamp.fromDate(new Date(values.dateFiled)),
+        // Send plain ISO strings; the server action converts them to a real
+        // Firestore Timestamp. Passing a client Timestamp through the server-
+        // action boundary serializes it to a plain map that Firestore stores as
+        // a nested object (not a Timestamp), which later crashes date formatting.
+        dateReceived: new Date(values.dateReceived).toISOString(),
+        dateFiled: new Date(values.dateFiled).toISOString(),
         sector: values.sector,
         subCategory: values.subCategory || undefined,
       },

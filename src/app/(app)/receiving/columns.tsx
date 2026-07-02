@@ -34,10 +34,22 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: 'Rejected',
 };
 
-function formatDate(ts: Timestamp | Date | undefined) {
+function formatDate(ts: unknown) {
   if (!ts) return '-';
-  const date = ts instanceof Timestamp ? ts.toDate() : ts;
-  return format(date, 'MMM d, yyyy');
+  let date: Date;
+  if (ts instanceof Timestamp) {
+    date = ts.toDate();
+  } else if (ts instanceof Date) {
+    date = ts;
+  } else if (typeof ts === 'string' || typeof ts === 'number') {
+    date = new Date(ts);
+  } else if (typeof ts === 'object' && typeof (ts as { seconds?: unknown }).seconds === 'number') {
+    // Serialized Firestore Timestamp map, e.g. {type, seconds, nanoseconds}
+    date = new Date((ts as { seconds: number }).seconds * 1000);
+  } else {
+    return '-';
+  }
+  return isNaN(date.getTime()) ? '-' : format(date, 'MMM d, yyyy');
 }
 
 export const columns: ColumnDef<RequestRecord>[] = [

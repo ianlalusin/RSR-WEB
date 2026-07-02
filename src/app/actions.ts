@@ -855,14 +855,50 @@ export async function deleteHospital(id: string, actorToken: ActorToken) {
 
 // ---- Request / Receiving Actions ----
 
-type AddRequestData = Omit<RequestRecord, 'id' | 'createdAt' | 'updatedAt' | 'createdByUid' | 'status' | 'reviewNotes' | 'reviewedByUid' | 'reviewedAt'>;
+// Date fields are received as plain ISO strings, not client Timestamps: a
+// client-SDK Timestamp does not survive the server-action serialization
+// boundary — it arrives as a plain map and Firestore stores it as a nested
+// object rather than a native Timestamp, which later crashes date rendering.
+type AddRequestData = Omit<
+    RequestRecord,
+    'id' | 'createdAt' | 'updatedAt' | 'createdByUid' | 'status' | 'reviewNotes' | 'reviewedByUid' | 'reviewedAt' | 'dateReceived' | 'dateFiled'
+> & {
+    dateReceived: string;
+    dateFiled: string;
+};
+
+/**
+ * Coerce a date value into a native Firestore (Admin) Timestamp.
+ * Accepts ISO strings / epoch millis (the current client contract) and also
+ * tolerates a serialized client Timestamp map ({seconds, nanoseconds} or the
+ * {_seconds, _nanoseconds} admin shape) so a mid-rollout client can't corrupt data.
+ * Returns null when the value cannot be parsed to a valid date.
+ */
+function toAdminTimestamp(value: unknown): Timestamp | null {
+    if (value == null) return null;
+    if (value instanceof Timestamp) return value;
+    if (typeof value === 'object') {
+        const v = value as { seconds?: unknown; _seconds?: unknown; nanoseconds?: unknown; _nanoseconds?: unknown };
+        if (typeof v.seconds === 'number') return new Timestamp(v.seconds, typeof v.nanoseconds === 'number' ? v.nanoseconds : 0);
+        if (typeof v._seconds === 'number') return new Timestamp(v._seconds, typeof v._nanoseconds === 'number' ? v._nanoseconds : 0);
+    }
+    const d = new Date(value as string | number | Date);
+    return isNaN(d.getTime()) ? null : Timestamp.fromDate(d);
+}
 
 export async function addRequest(data: AddRequestData, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        const dateReceived = toAdminTimestamp(data.dateReceived);
+        const dateFiled = toAdminTimestamp(data.dateFiled);
+        if (!dateReceived || !dateFiled) {
+            return { success: false, error: 'Date Received and Date Filed must be valid dates.' };
+        }
         const newRef = adminDb.collection('requests').doc();
         await newRef.set({
             ...data,
+            dateReceived,
+            dateFiled,
             status: 'pending' as RequestStatus,
             createdByUid: actor.uid,
             createdAt: FieldValue.serverTimestamp(),
