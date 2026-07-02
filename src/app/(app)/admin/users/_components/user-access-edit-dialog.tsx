@@ -55,7 +55,7 @@ import {
   AccessLevel,
   SocmedRole,
 } from '@/lib/types';
-import { ALL_PAGE_KEYS, assignableRoles, resolveScopeBreadth } from '@/lib/access';
+import { ALL_PAGE_KEYS, assignableRoles, broadestScope, highestRankRoleId } from '@/lib/access';
 import { useAuth } from '@/components/providers/auth-provider';
 import { Loader2, Wand2 } from 'lucide-react';
 
@@ -100,7 +100,7 @@ const SOCMED_ROLES: SocmedRole[] = ['Admin', 'Manager', 'Validator', 'Checker', 
 const formSchema = z.object({
   isActive: z.boolean(),
   departmentId: z.string().optional(),
-  roleId: z.string().optional(),
+  roleIds: z.array(z.string()).default([]),
   socmedRole: z.string().optional(),
   access: z.object({
     districtIds: z.array(z.string()).default([]),
@@ -141,7 +141,7 @@ export default function UserAccessEditDialog({
     defaultValues: {
       isActive: user.isActive,
       departmentId: user.departmentId || '',
-      roleId: user.roleId || '',
+      roleIds: user.roleIds?.length ? user.roleIds : (user.roleId ? [user.roleId] : []),
       socmedRole: user.socmedRole || 'none',
       access: {
         districtIds: user.access?.districtIds || [],
@@ -171,27 +171,38 @@ export default function UserAccessEditDialog({
     })();
   }, [isOpen]);
 
-  // Resolved location scope of the currently selected role drives which
-  // scope picker is shown (district vs barangay).
+  // Broadest scope across the selected roles drives which scope picker shows.
+  const watchedRoleIds = form.watch('roleIds') || [];
   const selectedScope = useMemo(
-    () => resolveScopeBreadth(form.watch('roleId') || undefined, roles),
-    [form.watch('roleId'), roles],
+    () => broadestScope(watchedRoleIds, roles),
+    [watchedRoleIds, roles],
   );
+  const primaryRoleName = useMemo(() => {
+    const primaryId = highestRankRoleId(watchedRoleIds, roles);
+    return roles.find(r => r.id === primaryId)?.name;
+  }, [watchedRoleIds, roles]);
 
+  // Union of all selected roles' presets → max access level per page.
   const applyRolePreset = () => {
-    const roleId = form.getValues('roleId');
-    const roleDoc = roles.find(r => r.id === roleId);
-    if (!roleDoc?.preset) return;
+    const selected = (form.getValues('roleIds') || [])
+      .map(id => roles.find(r => r.id === id))
+      .filter((r): r is Role => !!r?.preset);
+    if (selected.length === 0) return;
 
-    // Apply page access levels
+    const LEVEL_ORDER: Record<AccessLevel, number> = { restricted: 0, readonly: 1, readwrite: 2, full: 3 };
     const pagesFlat: Record<string, AccessLevel> = {};
     ALL_PAGE_KEYS.forEach(key => {
-      pagesFlat[key] = (roleDoc.preset![key] as AccessLevel) ?? 'restricted';
+      let best: AccessLevel = 'restricted';
+      for (const roleDoc of selected) {
+        const lvl = (roleDoc.preset![key] as AccessLevel) ?? 'restricted';
+        if (LEVEL_ORDER[lvl] > LEVEL_ORDER[best]) best = lvl;
+      }
+      pagesFlat[key] = best;
     });
     form.setValue('access.pages', pagesFlat, { shouldDirty: true });
 
-    // Apply location scope based on the role's resolved scope tier.
-    const scope = resolveScopeBreadth(roleId, roles);
+    // Apply location scope based on the broadest resolved scope tier.
+    const scope = broadestScope(form.getValues('roleIds') || [], roles);
     if (scope === 'all_districts') {
       form.setValue('access.districtIds', districts.map(d => d.id), { shouldDirty: true });
       form.setValue('access.barangayIds', [], { shouldDirty: true });
@@ -206,7 +217,7 @@ export default function UserAccessEditDialog({
       // barangayIds → user-specific selection, leave as-is
     }
 
-    toast({ title: 'Preset Applied', description: `Permissions set to ${roleDoc.name} defaults.` });
+    toast({ title: 'Presets Applied', description: `Permissions set to the union of ${selected.length} role preset(s).` });
   };
 
   const onSubmit = async (values: FormValues) => {
@@ -226,7 +237,8 @@ export default function UserAccessEditDialog({
     const payload: Partial<UserProfile> = {
       isActive: values.isActive,
       departmentId: values.departmentId,
-      roleId: values.roleId,
+      // Server derives the primary roleId (highest rank) and broadest scope from roleIds.
+      roleIds: values.roleIds,
       socmedRole: (values.socmedRole === 'none' ? null : values.socmedRole) as SocmedRole | undefined,
       access: {
         districtIds: values.access.districtIds,
@@ -271,8 +283,8 @@ export default function UserAccessEditDialog({
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <ScrollArea className="h-[65vh] pr-4">
               <div className="space-y-6 py-4">
-                {/* Row 1: Status + Department + Role + SocMed Role */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {/* Row 1: Status + Department + SocMed Role */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
                     name="isActive"
@@ -315,25 +327,6 @@ export default function UserAccessEditDialog({
                   />
                   <FormField
                     control={form.control}
-                    name="roleId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Role</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {allowedRoles.map(role => (
-                              <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
                     name="socmedRole"
                     render={({ field }) => (
                       <FormItem>
@@ -354,13 +347,44 @@ export default function UserAccessEditDialog({
                   />
                 </div>
 
+                {/* Roles (multi-select) */}
+                <FormField
+                  control={form.control}
+                  name="roleIds"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-base font-semibold">Roles</FormLabel>
+                      <FormDescription>
+                        A user can hold multiple roles — effective access is the union of their page permissions and the broadest location scope.
+                        {primaryRoleName && <> Primary role: <strong>{primaryRoleName}</strong>.</>}
+                      </FormDescription>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-2">
+                        {allowedRoles.map(role => (
+                          <label key={role.id} className="flex flex-row items-start space-x-3 space-y-0 cursor-pointer">
+                            <Checkbox
+                              checked={field.value?.includes(role.id)}
+                              onCheckedChange={(checked) => (
+                                checked
+                                  ? field.onChange([...(field.value || []), role.id])
+                                  : field.onChange((field.value || []).filter((v) => v !== role.id))
+                              )}
+                            />
+                            <span className="text-sm font-normal">{role.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 {/* Apply Preset button */}
                 {(() => {
-                  const selectedRole = roles.find(r => r.id === form.watch('roleId'));
-                  return selectedRole?.preset ? (
+                  const anyPreset = (form.watch('roleIds') || []).some(id => roles.find(r => r.id === id)?.preset);
+                  return anyPreset ? (
                     <Button type="button" variant="outline" size="sm" onClick={applyRolePreset}>
                       <Wand2 className="mr-2 h-4 w-4" />
-                      Apply {selectedRole.name} Preset
+                      Apply Role Presets
                     </Button>
                   ) : null;
                 })()}

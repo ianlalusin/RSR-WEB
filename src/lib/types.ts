@@ -56,7 +56,8 @@ export interface UserProfile {
   isActive: boolean;
   
   departmentId?: string; // e.g., 'finance', 'operations'
-  roleId?: string;   // e.g., 'platformAdmin', 'officeAdmin'
+  roleId?: string;   // PRIMARY role (highest-rank of roleIds) — kept in sync server-side; drives legacy role checks + rules
+  roleIds?: string[]; // full set of assigned roles (multi-role). Effective access = union of their capabilities + broadest scope.
 
   // NEW: Centralized access control object
   access: {

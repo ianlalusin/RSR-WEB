@@ -173,6 +173,38 @@ function _getScopeBreadth(roleId: string | undefined, roles?: Role[]): ScopeBrea
   return resolveScopeBreadth(roleId, roles);
 }
 
+// ---- Multi-role resolution ----
+// The full set of roles a user holds (falls back to the single roleId).
+export function resolveRoleIds(u: UserProfile | null | undefined): string[] {
+  if (!u) return [];
+  if (Array.isArray(u.roleIds) && u.roleIds.length) return u.roleIds;
+  return u.roleId ? [u.roleId] : [];
+}
+
+// Broadest (most permissive) location scope across a set of roles.
+const _SCOPE_ORDER: Record<ScopeBreadth, number> = {
+  none: 0, own_barangays: 1, own_districts: 2, all_districts: 3,
+};
+export function broadestScope(roleIds: string[], roles?: Role[]): ScopeBreadth {
+  let best: ScopeBreadth = 'none';
+  for (const id of roleIds) {
+    const s = resolveScopeBreadth(id, roles);
+    if (_SCOPE_ORDER[s] > _SCOPE_ORDER[best]) best = s;
+  }
+  return best;
+}
+
+// Highest-rank role among a set (becomes the primary roleId).
+export function highestRankRoleId(roleIds: string[], roles?: Role[]): string | undefined {
+  let bestId: string | undefined;
+  let bestRank = -1;
+  for (const id of roleIds) {
+    const r = _getRank(id, roles);
+    if (r > bestRank) { bestRank = r; bestId = id; }
+  }
+  return bestId;
+}
+
 // ---- Guard functions ----
 
 export function isPlatformAdmin(u: UserProfile | null | undefined, isPlatformAdminClaim?: boolean): boolean {

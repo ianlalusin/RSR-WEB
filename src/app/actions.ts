@@ -20,7 +20,7 @@ import type {
   ScholarshipFormStatusMode,
 } from '@/lib/types/scholarship';
 import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, computePriorityScore, yearLevelPriorityPoints, computeFormStatus, DEFAULT_SCHOLARSHIP_FORM_CONFIG, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
-import { canViewPage, canDo, isPlatformAdmin, isOIC, canManageUser, assignableRoles, hasRecordScope, resolveScopeBreadth } from '@/lib/access';
+import { canViewPage, canDo, isPlatformAdmin, isOIC, canManageUser, assignableRoles, hasRecordScope, broadestScope, highestRankRoleId } from '@/lib/access';
 import { logAudit } from '@/lib/audit';
 import { assertActor, type VerifiedActor } from '@/lib/server-auth';
 import { randomBytes } from 'crypto';
@@ -490,7 +490,7 @@ export async function setCurrentCycle(brgyId: string, year: string, actorToken: 
 // Only these fields may be written through updateUserAccess. Anything else in
 // the payload (arbitrary field injection) is dropped.
 const USER_ACCESS_WRITABLE_FIELDS: (keyof UserProfile)[] = [
-    'isActive', 'roleId', 'departmentId', 'socmedRole', 'access', 'displayName', 'photoURL',
+    'isActive', 'roleId', 'roleIds', 'departmentId', 'socmedRole', 'access', 'displayName', 'photoURL',
 ];
 
 export async function updateUserAccess(uid: string, data: Partial<UserProfile>, actorToken: ActorToken, originalData: Partial<UserProfile>) {
@@ -509,16 +509,24 @@ export async function updateUserAccess(uid: string, data: Partial<UserProfile>, 
         ]);
         const target = targetSnap.exists ? (targetSnap.data() as UserProfile) : null;
 
+        // Roles being set in THIS request (for authorization). Supports both the
+        // new roleIds[] and the legacy single roleId; null when roles aren't changing.
+        const rolesBeingSet: string[] | null =
+            Array.isArray(data.roleIds) ? (data.roleIds as string[])
+            : (data.roleId ? [data.roleId as string] : null);
+
         // Rank enforcement for non-platform-admins: cannot manage a user of
-        // equal/higher rank, nor assign a role at/above your own rank.
+        // equal/higher rank, nor assign any role at/above your own rank.
         if (!actor.isPlatformAdmin) {
             if (target && !canManageUser(actor.profile, target, { roles })) {
                 return { success: false, error: 'You cannot manage a user of equal or higher rank.' };
             }
-            if (data.roleId) {
-                const assignable = assignableRoles(actor.profile, { roles }).map(r => r.id);
-                if (!assignable.includes(data.roleId)) {
-                    return { success: false, error: 'You cannot assign a role at or above your own rank.' };
+            if (rolesBeingSet) {
+                const assignable = new Set(assignableRoles(actor.profile, { roles }).map(r => r.id));
+                for (const rid of rolesBeingSet) {
+                    if (!assignable.has(rid)) {
+                        return { success: false, error: 'You cannot assign a role at or above your own rank.' };
+                    }
                 }
             }
         }
@@ -529,13 +537,25 @@ export async function updateUserAccess(uid: string, data: Partial<UserProfile>, 
             if (key in data) sanitized[key] = (data as Record<string, unknown>)[key];
         }
 
-        // Denormalize the resolved location scope from the effective role so
-        // firestore.rules can enforce record reads without recomputing role
-        // logic. If a full access object is being written, inject it there;
-        // otherwise merge it into the existing access map via a dotted path.
-        const effectiveRoleId = (data.roleId as string | undefined) ?? target?.roleId;
-        const scopeBreadth = resolveScopeBreadth(effectiveRoleId, roles);
+        // Resolve the effective multi-role set → primary (highest-rank) role +
+        // broadest location scope across all roles. Falls back to the target's
+        // existing roles when this request isn't changing them.
+        const finalRoleIds = rolesBeingSet
+            ?? (Array.isArray(target?.roleIds) && target!.roleIds!.length
+                ? target!.roleIds!
+                : (target?.roleId ? [target.roleId] : []));
+        const primaryRoleId = highestRankRoleId(finalRoleIds, roles) ?? finalRoleIds[0];
+        const scopeBreadth = broadestScope(finalRoleIds, roles);
+
         const updatePayload: Record<string, unknown> = { ...sanitized, updatedAt: FieldValue.serverTimestamp() };
+        // Keep primary roleId and roleIds in sync whenever roles change.
+        if (rolesBeingSet) {
+            updatePayload.roleIds = finalRoleIds;
+            updatePayload.roleId = primaryRoleId;
+        }
+        // Denormalize the broadest scope so firestore.rules + client queries can
+        // enforce record scope without recomputing role logic. Inject into the
+        // access object when one is being written, else merge via dotted path.
         if (sanitized.access && typeof sanitized.access === 'object') {
             updatePayload.access = { ...(sanitized.access as Record<string, unknown>), scopeBreadth };
         } else {
