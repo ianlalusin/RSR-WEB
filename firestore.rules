@@ -32,6 +32,43 @@ service cloud.firestore {
       return isPlatformAdmin() || (isActiveUser() && (districtId in me().access.districtIds));
     }
 
+    // -------- Role-based location scope (4 tiers) --------
+    // Resolved scope tier: prefer the denormalized access.scopeBreadth (written
+    // server-side on role assignment); fall back to the built-in role->scope
+    // mapping (kept in sync with access.ts _BUILTIN_SCOPE) for docs that predate
+    // the field. Unknown/other roles resolve to 'none' (fail closed).
+    function myScope() {
+      return ('scopeBreadth' in me().access)
+        ? me().access.scopeBreadth
+        : (me().roleId in ['oic', 'officeAdmin'] ? 'all_districts'
+           : (me().roleId == 'coordinator' ? 'own_barangays' : 'none'));
+    }
+
+    // Single-location records (requests, medicalRecords): districtId + brgyId.
+    function scopeReadSingle(districtId, brgyId) {
+      return isPlatformAdmin() || (isActiveUser() && (
+        myScope() == 'all_districts'
+        || (myScope() == 'own_districts' && districtId in me().access.districtIds)
+        || (myScope() == 'own_barangays' && brgyId in me().access.barangayIds)
+      ));
+    }
+
+    // Multi-location records (projectRecords): districtIds[] + brgyIds[].
+    function scopeReadMulti(districtIds, brgyIds) {
+      return isPlatformAdmin() || (isActiveUser() && (
+        myScope() == 'all_districts'
+        || (myScope() == 'own_districts' && me().access.districtIds.hasAny(districtIds))
+        || (myScope() == 'own_barangays' && me().access.barangayIds.hasAny(brgyIds))
+      ));
+    }
+
+    // Page-access read gate (for non-location collections like tasks).
+    function canReadPage(pageKey) {
+      return isPlatformAdmin() || (isActiveUser()
+        && pageKey in me().access.pages
+        && me().access.pages[pageKey].level != 'restricted');
+    }
+
     // -------- SocMed role helpers --------
     function socmedRole() {
       return 'socmedRole' in me() ? me().socmedRole : null;
@@ -125,27 +162,27 @@ service cloud.firestore {
       allow read, write: if hasDistrict(districtId);
     }
 
-    // -------- Medical Records --------
+    // -------- Medical Records (location-scoped) --------
     match /medicalRecords/{recordId} {
-      allow read: if hasDistrict(resource.data.districtId);
+      allow read: if scopeReadSingle(resource.data.districtId, resource.data.brgyId);
       allow write: if false; // All writes via Admin SDK server actions
     }
 
-    // -------- Project Records --------
+    // -------- Project Records (location-scoped) --------
     match /projectRecords/{recordId} {
-      allow read: if isActiveUser();
+      allow read: if scopeReadMulti(resource.data.districtIds, resource.data.brgyIds);
       allow write: if false;
     }
 
-    // -------- Requests (Receiving workflow) --------
+    // -------- Requests (Receiving workflow, location-scoped) --------
     match /requests/{requestId} {
-      allow read: if hasDistrict(resource.data.districtId);
+      allow read: if scopeReadSingle(resource.data.districtId, resource.data.brgyId);
       allow write: if false; // All writes via Admin SDK server actions
     }
 
-    // -------- Tasks (Kanban) --------
+    // -------- Tasks (Kanban — page-gated, not location-tagged) --------
     match /tasks/{taskId} {
-      allow read: if isActiveUser();
+      allow read: if canReadPage('tasker');
       allow write: if false; // All writes via Admin SDK server actions
     }
 

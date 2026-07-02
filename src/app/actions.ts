@@ -20,7 +20,7 @@ import type {
   ScholarshipFormStatusMode,
 } from '@/lib/types/scholarship';
 import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, computePriorityScore, yearLevelPriorityPoints, computeFormStatus, DEFAULT_SCHOLARSHIP_FORM_CONFIG, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
-import { canViewPage, canDo, isPlatformAdmin, isOIC, canManageUser, assignableRoles, hasRecordScope } from '@/lib/access';
+import { canViewPage, canDo, isPlatformAdmin, isOIC, canManageUser, assignableRoles, hasRecordScope, resolveScopeBreadth } from '@/lib/access';
 import { logAudit } from '@/lib/audit';
 import { assertActor, type VerifiedActor } from '@/lib/server-auth';
 import { randomBytes } from 'crypto';
@@ -503,14 +503,15 @@ export async function updateUserAccess(uid: string, data: Partial<UserProfile>, 
             return { success: false, error: 'You do not have permission to manage user access.' };
         }
 
+        const [targetSnap, roles] = await Promise.all([
+            adminDb.collection('users').doc(uid).get(),
+            loadRoles(),
+        ]);
+        const target = targetSnap.exists ? (targetSnap.data() as UserProfile) : null;
+
         // Rank enforcement for non-platform-admins: cannot manage a user of
         // equal/higher rank, nor assign a role at/above your own rank.
         if (!actor.isPlatformAdmin) {
-            const [targetSnap, roles] = await Promise.all([
-                adminDb.collection('users').doc(uid).get(),
-                loadRoles(),
-            ]);
-            const target = targetSnap.exists ? (targetSnap.data() as UserProfile) : null;
             if (target && !canManageUser(actor.profile, target, { roles })) {
                 return { success: false, error: 'You cannot manage a user of equal or higher rank.' };
             }
@@ -528,8 +529,21 @@ export async function updateUserAccess(uid: string, data: Partial<UserProfile>, 
             if (key in data) sanitized[key] = (data as Record<string, unknown>)[key];
         }
 
+        // Denormalize the resolved location scope from the effective role so
+        // firestore.rules can enforce record reads without recomputing role
+        // logic. If a full access object is being written, inject it there;
+        // otherwise merge it into the existing access map via a dotted path.
+        const effectiveRoleId = (data.roleId as string | undefined) ?? target?.roleId;
+        const scopeBreadth = resolveScopeBreadth(effectiveRoleId, roles);
+        const updatePayload: Record<string, unknown> = { ...sanitized, updatedAt: FieldValue.serverTimestamp() };
+        if (sanitized.access && typeof sanitized.access === 'object') {
+            updatePayload.access = { ...(sanitized.access as Record<string, unknown>), scopeBreadth };
+        } else {
+            updatePayload['access.scopeBreadth'] = scopeBreadth;
+        }
+
         const userDoc = adminDb.collection('users').doc(uid);
-        await userDoc.update({ ...sanitized, updatedAt: FieldValue.serverTimestamp() });
+        await userDoc.update(updatePayload);
 
         await logAudit({
             actorUid: actor.uid,
