@@ -6,7 +6,7 @@ import {
 } from '@/ai/flows/generate-barangay-profiles';
 import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { ProjectRecord, Barangay, BarangayCycle, BarangayCycleStats, CaptainProfile, UserProfile, Department, Role, MedicalRecord, Hospital, RequestRecord, RequestStatus, TaskRecord, TaskStatus, AuditLog, AnalyticsData } from '@/lib/types';
+import { ProjectRecord, Barangay, BarangayCycle, BarangayCycleStats, CaptainProfile, UserProfile, Department, Role, MedicalRecord, Hospital, RequestRecord, RequestStatus, TaskRecord, TaskStatus, AuditLog, AnalyticsData, PageKey, ProjectSector } from '@/lib/types';
 import type { Query } from 'firebase-admin/firestore';
 import type {
   ScholarshipApplication,
@@ -20,7 +20,7 @@ import type {
   ScholarshipFormStatusMode,
 } from '@/lib/types/scholarship';
 import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, computePriorityScore, yearLevelPriorityPoints, computeFormStatus, DEFAULT_SCHOLARSHIP_FORM_CONFIG, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
-import { canViewPage, canDo } from '@/lib/access';
+import { canViewPage, canDo, isPlatformAdmin, isOIC, canManageUser, assignableRoles } from '@/lib/access';
 import { logAudit } from '@/lib/audit';
 import { assertActor, type VerifiedActor } from '@/lib/server-auth';
 import { randomBytes } from 'crypto';
@@ -30,6 +30,38 @@ type ActorToken = string;
 
 async function resolveActor(token: ActorToken): Promise<VerifiedActor> {
   return assertActor(token);
+}
+
+/**
+ * Server-side authorization guard. Throws when the actor lacks the given
+ * page/action permission. Mirrors the client-side canDo() so that anyone
+ * allowed to use the UI passes, while direct server-action calls that bypass
+ * the UI (the endpoints are publicly invocable) are rejected. This is the
+ * write-side counterpart to the read-side firestore.rules.
+ */
+function assertCan(
+  actor: VerifiedActor,
+  page: PageKey,
+  action: 'read' | 'create' | 'update' | 'delete',
+): void {
+  if (!canDo(actor.profile, page, action, { isPlatformAdminClaim: actor.isPlatformAdmin })) {
+    throw new Error('You do not have permission to perform this action.');
+  }
+}
+
+/** Maps a project record's sector to the page key that gates it. */
+function projectSectorPage(sector: ProjectSector | undefined): PageKey {
+  if (sector === 'educational') return 'projects_educational';
+  if (sector === 'infrastructure') return 'projects_infrastructure';
+  return 'projects_medical';
+}
+
+/** Loads all roles from lists/roles (for rank-based authorization). */
+async function loadRoles(): Promise<Role[]> {
+  const snap = await adminDb.collection('lists').doc('roles').get();
+  if (!snap.exists) return [];
+  const map = (snap.data() as { roles?: Record<string, Omit<Role, 'id'>> })?.roles ?? {};
+  return Object.entries(map).map(([id, r]) => ({ id, ...(r as Omit<Role, 'id'>) }));
 }
 
 export async function generateBarangayProfiles(input: GenerateBarangayProfilesInput, actorToken: ActorToken) {
@@ -85,6 +117,7 @@ function buildListItem(brgy: { name: string; districtId: string; districtName: s
 export async function addBarangay(data: AddBarangayInput, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'barangays_list', 'create');
         const batch = adminDb.batch();
         const newBrgyRef = adminDb.collection('barangays').doc();
 
@@ -145,6 +178,7 @@ export type UpdateBarangayInput = Partial<Pick<Barangay, 'name' | 'districtId' |
 export async function updateBarangay(id: string, data: UpdateBarangayInput, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'barangays_list', 'update');
         const batch = adminDb.batch();
         const brgyDoc = adminDb.collection('barangays').doc(id);
 
@@ -183,6 +217,7 @@ export async function updateBarangay(id: string, data: UpdateBarangayInput, acto
 export async function deleteBarangay(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'barangays_list', 'delete');
         const batch = adminDb.batch();
         const brgyDoc = adminDb.collection('barangays').doc(id);
         batch.delete(brgyDoc);
@@ -210,6 +245,7 @@ export async function deleteBarangay(id: string, actorToken: ActorToken) {
 export async function bulkAddBarangays(data: AddBarangayInput[], actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'barangays_list', 'create');
         const batch = adminDb.batch();
 
         const listUpdates: Record<string, any> = {};
@@ -279,6 +315,7 @@ export type UpsertCycleInput = Partial<{
 export async function upsertBarangayCycle(brgyId: string, year: string, data: UpsertCycleInput, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'barangay_detail', 'update');
         const batch = adminDb.batch();
 
         const brgyRef = adminDb.collection('barangays').doc(brgyId);
@@ -361,6 +398,7 @@ export async function upsertBarangayCycle(brgyId: string, year: string, data: Up
 export async function setCurrentCycle(brgyId: string, year: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'barangay_detail', 'update');
 
         const brgyRef = adminDb.collection('barangays').doc(brgyId);
         const cycleRef = brgyRef.collection('cycles').doc(year);
@@ -410,11 +448,49 @@ export async function setCurrentCycle(brgyId: string, year: string, actorToken: 
 }
 
 
+// Only these fields may be written through updateUserAccess. Anything else in
+// the payload (arbitrary field injection) is dropped.
+const USER_ACCESS_WRITABLE_FIELDS: (keyof UserProfile)[] = [
+    'isActive', 'roleId', 'departmentId', 'socmedRole', 'access', 'displayName', 'photoURL',
+];
+
 export async function updateUserAccess(uid: string, data: Partial<UserProfile>, actorToken: ActorToken, originalData: Partial<UserProfile>) {
     try {
         const actor = await resolveActor(actorToken);
+
+        // Only platform admins and OICs may manage other users' access.
+        const actorIsManager = actor.isPlatformAdmin || isPlatformAdmin(actor.profile) || isOIC(actor.profile);
+        if (!actorIsManager) {
+            return { success: false, error: 'You do not have permission to manage user access.' };
+        }
+
+        // Rank enforcement for non-platform-admins: cannot manage a user of
+        // equal/higher rank, nor assign a role at/above your own rank.
+        if (!actor.isPlatformAdmin) {
+            const [targetSnap, roles] = await Promise.all([
+                adminDb.collection('users').doc(uid).get(),
+                loadRoles(),
+            ]);
+            const target = targetSnap.exists ? (targetSnap.data() as UserProfile) : null;
+            if (target && !canManageUser(actor.profile, target, { roles })) {
+                return { success: false, error: 'You cannot manage a user of equal or higher rank.' };
+            }
+            if (data.roleId) {
+                const assignable = assignableRoles(actor.profile, { roles }).map(r => r.id);
+                if (!assignable.includes(data.roleId)) {
+                    return { success: false, error: 'You cannot assign a role at or above your own rank.' };
+                }
+            }
+        }
+
+        // Field whitelist — drop anything not explicitly permitted.
+        const sanitized: Record<string, unknown> = {};
+        for (const key of USER_ACCESS_WRITABLE_FIELDS) {
+            if (key in data) sanitized[key] = (data as Record<string, unknown>)[key];
+        }
+
         const userDoc = adminDb.collection('users').doc(uid);
-        await userDoc.update({ ...data, updatedAt: FieldValue.serverTimestamp() });
+        await userDoc.update({ ...sanitized, updatedAt: FieldValue.serverTimestamp() });
 
         await logAudit({
             actorUid: actor.uid,
@@ -487,6 +563,7 @@ type AddProjectData = Omit<ProjectRecord, 'id' | 'createdAt' | 'updatedAt' | 'cr
 export async function addProjectRecord(data: AddProjectData, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, projectSectorPage(data.sector), 'create');
         const newRecordRef = adminDb.collection('projectRecords').doc();
         await newRecordRef.set({
             ...data,
@@ -514,6 +591,8 @@ export async function updateProjectRecord(id: string, data: Partial<Omit<Project
     try {
         const actor = await resolveActor(actorToken);
         const recordDoc = adminDb.collection('projectRecords').doc(id);
+        const existingSector = (await recordDoc.get()).data()?.sector as ProjectSector | undefined;
+        assertCan(actor, projectSectorPage(data.sector ?? existingSector), 'update');
         await recordDoc.update({
             ...data,
             updatedAt: FieldValue.serverTimestamp(),
@@ -537,7 +616,10 @@ export async function updateProjectRecord(id: string, data: Partial<Omit<Project
 export async function deleteProjectRecord(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
-        await adminDb.collection('projectRecords').doc(id).delete();
+        const recordRef = adminDb.collection('projectRecords').doc(id);
+        const existingSector = (await recordRef.get()).data()?.sector as ProjectSector | undefined;
+        assertCan(actor, projectSectorPage(existingSector), 'delete');
+        await recordRef.delete();
 
         await logAudit({
             actorUid: actor.uid,
@@ -558,6 +640,7 @@ type AddDepartmentData = Omit<Department, 'id' | 'createdAt' | 'updatedAt'>;
 export async function addDepartment(data: AddDepartmentData, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'organization_departments', 'create');
         const newDeptId = adminDb.collection('_').doc().id;
         const listDocRef = adminDb.collection('lists').doc('departments');
 
@@ -589,6 +672,7 @@ export async function addDepartment(data: AddDepartmentData, actorToken: ActorTo
 export async function updateDepartment(id: string, data: Partial<Omit<Department, 'id' | 'createdAt' | 'updatedAt'>>, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'organization_departments', 'update');
         const listDocRef = adminDb.collection('lists').doc('departments');
 
         const updatePayload: Record<string, any> = {
@@ -618,6 +702,7 @@ export async function updateDepartment(id: string, data: Partial<Omit<Department
 export async function deleteDepartment(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'organization_departments', 'delete');
         const listDocRef = adminDb.collection('lists').doc('departments');
         await listDocRef.update({ [`departments.${id}`]: FieldValue.delete() });
 
@@ -641,6 +726,7 @@ type AddRoleData = { name: string };
 export async function addRole(data: AddRoleData, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'organization_roles', 'create');
         const newRoleId = adminDb.collection('_').doc().id;
         const listDocRef = adminDb.collection('lists').doc('roles');
 
@@ -674,6 +760,7 @@ export async function addRole(data: AddRoleData, actorToken: ActorToken) {
 export async function updateRole(id: string, data: Partial<Omit<Role, 'id' | 'createdAt' | 'updatedAt'>>, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'organization_roles', 'update');
         const listDocRef = adminDb.collection('lists').doc('roles');
 
         const snap = await listDocRef.get();
@@ -711,6 +798,7 @@ export async function updateRole(id: string, data: Partial<Omit<Role, 'id' | 'cr
 export async function deleteRole(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'organization_roles', 'delete');
         const listDocRef = adminDb.collection('lists').doc('roles');
 
         const snap = await listDocRef.get();
@@ -738,6 +826,7 @@ type AddMedicalRecordData = Omit<MedicalRecord, 'id' | 'createdAt' | 'updatedAt'
 export async function addMedicalRecord(data: AddMedicalRecordData, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'projects_medical', 'create');
         const newRecordRef = adminDb.collection('medicalRecords').doc();
 
         const projectId = `MED-${newRecordRef.id.substring(0, 8).toUpperCase()}`;
@@ -769,6 +858,7 @@ export async function addMedicalRecord(data: AddMedicalRecordData, actorToken: A
 export async function updateMedicalRecord(id: string, data: Partial<Omit<MedicalRecord, 'id'>>, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'projects_medical', 'update');
         const recordDoc = adminDb.collection('medicalRecords').doc(id);
         await recordDoc.update({
             ...data,
@@ -794,6 +884,7 @@ export async function updateMedicalRecord(id: string, data: Partial<Omit<Medical
 export async function deleteMedicalRecord(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'projects_medical', 'delete');
         await adminDb.collection('medicalRecords').doc(id).delete();
 
         await logAudit({
@@ -815,6 +906,7 @@ type AddHospitalData = Omit<Hospital, 'id' | 'createdAt' | 'updatedAt'>;
 export async function addHospital(data: AddHospitalData, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'projects_hospitals', 'create');
         const newId = adminDb.collection('_').doc().id;
         const listDocRef = adminDb.collection('lists').doc('hospitals');
         const newItemData = { ...data, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() };
@@ -829,6 +921,7 @@ export async function addHospital(data: AddHospitalData, actorToken: ActorToken)
 export async function updateHospital(id: string, data: Partial<Omit<Hospital, 'id' | 'createdAt' | 'updatedAt'>>, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'projects_hospitals', 'update');
         const listDocRef = adminDb.collection('lists').doc('hospitals');
         const updatePayload: Record<string, any> = { [`hospitals.${id}.updatedAt`]: FieldValue.serverTimestamp() };
         if (data.name !== undefined) updatePayload[`hospitals.${id}.name`] = data.name;
@@ -844,6 +937,7 @@ export async function updateHospital(id: string, data: Partial<Omit<Hospital, 'i
 export async function deleteHospital(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'projects_hospitals', 'delete');
         const listDocRef = adminDb.collection('lists').doc('hospitals');
         await listDocRef.update({ [`hospitals.${id}`]: FieldValue.delete() });
         await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'delete', entityType: 'hospital', entityId: id });
@@ -889,6 +983,7 @@ function toAdminTimestamp(value: unknown): Timestamp | null {
 export async function addRequest(data: AddRequestData, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'receiving', 'create');
         const dateReceived = toAdminTimestamp(data.dateReceived);
         const dateFiled = toAdminTimestamp(data.dateFiled);
         if (!dateReceived || !dateFiled) {
@@ -914,6 +1009,7 @@ export async function addRequest(data: AddRequestData, actorToken: ActorToken) {
 export async function updateRequest(id: string, data: Partial<Omit<RequestRecord, 'id'>>, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'receiving', 'update');
         const docRef = adminDb.collection('requests').doc(id);
         await docRef.update({ ...data, updatedAt: FieldValue.serverTimestamp() });
         await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'update', entityType: 'request', entityId: id });
@@ -926,6 +1022,7 @@ export async function updateRequest(id: string, data: Partial<Omit<RequestRecord
 export async function deleteRequest(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'receiving', 'delete');
         await adminDb.collection('requests').doc(id).delete();
         await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'delete', entityType: 'request', entityId: id });
         return { success: true };
@@ -942,6 +1039,7 @@ export async function updateRequestStatus(
 ) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'receiving', 'update');
         const docRef = adminDb.collection('requests').doc(id);
         const updateData: Record<string, any> = {
             status: newStatus,
@@ -972,6 +1070,7 @@ type AddTaskData = Omit<TaskRecord, 'id' | 'createdAt' | 'updatedAt'>;
 export async function addTask(data: AddTaskData, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'tasker', 'create');
         const newRef = adminDb.collection('tasks').doc();
         await newRef.set({
             ...data,
@@ -988,6 +1087,7 @@ export async function addTask(data: AddTaskData, actorToken: ActorToken) {
 export async function updateTask(id: string, data: Partial<Omit<TaskRecord, 'id'>>, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'tasker', 'update');
         await adminDb.collection('tasks').doc(id).update({ ...data, updatedAt: FieldValue.serverTimestamp() });
         await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'update', entityType: 'task', entityId: id });
         return { success: true };
@@ -999,6 +1099,7 @@ export async function updateTask(id: string, data: Partial<Omit<TaskRecord, 'id'
 export async function updateTaskStatus(id: string, newStatus: TaskStatus, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'tasker', 'update');
         await adminDb.collection('tasks').doc(id).update({ status: newStatus, updatedAt: FieldValue.serverTimestamp() });
         await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'status_change', entityType: 'task', entityId: id, details: { newStatus } });
         return { success: true };
@@ -1010,6 +1111,7 @@ export async function updateTaskStatus(id: string, newStatus: TaskStatus, actorT
 export async function deleteTask(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
+        assertCan(actor, 'tasker', 'delete');
         await adminDb.collection('tasks').doc(id).delete();
         await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'delete', entityType: 'task', entityId: id });
         return { success: true };
