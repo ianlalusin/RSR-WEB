@@ -20,7 +20,7 @@ import type {
   ScholarshipFormStatusMode,
 } from '@/lib/types/scholarship';
 import { evaluateShortlist, resolveSchoolInput, resolveCourseInput, computePriorityScore, yearLevelPriorityPoints, computeFormStatus, DEFAULT_SCHOLARSHIP_FORM_CONFIG, OTHER_SCHOOL_VALUE, OTHER_COURSE_VALUE } from '@/lib/scholarship-schools';
-import { canViewPage, canDo, isPlatformAdmin, isOIC, canManageUser, assignableRoles } from '@/lib/access';
+import { canViewPage, canDo, isPlatformAdmin, isOIC, canManageUser, assignableRoles, hasRecordScope } from '@/lib/access';
 import { logAudit } from '@/lib/audit';
 import { assertActor, type VerifiedActor } from '@/lib/server-auth';
 import { randomBytes } from 'crypto';
@@ -62,6 +62,45 @@ async function loadRoles(): Promise<Role[]> {
   if (!snap.exists) return [];
   const map = (snap.data() as { roles?: Record<string, Omit<Role, 'id'>> })?.roles ?? {};
   return Object.entries(map).map(([id, r]) => ({ id, ...(r as Omit<Role, 'id'>) }));
+}
+
+/**
+ * Location-scope guard for record mutations. Throws when the record's
+ * district/barangay falls outside the actor's role-based scope tier
+ * (all_districts / own_districts / own_barangays / none). The write-side
+ * counterpart to the record read scoping in firestore.rules.
+ */
+async function assertRecordScope(
+  actor: VerifiedActor,
+  loc: { districtId?: string; brgyId?: string; districtIds?: string[]; brgyIds?: string[] },
+): Promise<void> {
+  if (actor.isPlatformAdmin) return;
+  const roles = await loadRoles();
+  if (!hasRecordScope(actor.profile, loc, { isPlatformAdminClaim: actor.isPlatformAdmin, roles })) {
+    throw new Error('This record is outside your assigned area.');
+  }
+}
+
+/**
+ * Loads an existing record and asserts the actor has location scope over it.
+ * Used by update/delete/status actions where the location lives on the stored
+ * document rather than the request payload. `multi` selects districtIds/brgyIds
+ * (project records) vs. districtId/brgyId (requests, medical records).
+ */
+async function assertExistingRecordScope(
+  actor: VerifiedActor,
+  collectionName: 'requests' | 'medicalRecords' | 'projectRecords',
+  id: string,
+  multi = false,
+): Promise<void> {
+  if (actor.isPlatformAdmin) return;
+  const snap = await adminDb.collection(collectionName).doc(id).get();
+  const d = snap.data() as Record<string, unknown> | undefined;
+  if (!d) return; // missing record — the operation itself will no-op/fail
+  const loc = multi
+    ? { districtIds: d.districtIds as string[] | undefined, brgyIds: d.brgyIds as string[] | undefined }
+    : { districtId: d.districtId as string | undefined, brgyId: d.brgyId as string | undefined };
+  await assertRecordScope(actor, loc);
 }
 
 export async function generateBarangayProfiles(input: GenerateBarangayProfilesInput, actorToken: ActorToken) {
@@ -564,6 +603,7 @@ export async function addProjectRecord(data: AddProjectData, actorToken: ActorTo
     try {
         const actor = await resolveActor(actorToken);
         assertCan(actor, projectSectorPage(data.sector), 'create');
+        await assertRecordScope(actor, { districtIds: data.districtIds, brgyIds: data.brgyIds });
         const newRecordRef = adminDb.collection('projectRecords').doc();
         await newRecordRef.set({
             ...data,
@@ -591,8 +631,10 @@ export async function updateProjectRecord(id: string, data: Partial<Omit<Project
     try {
         const actor = await resolveActor(actorToken);
         const recordDoc = adminDb.collection('projectRecords').doc(id);
-        const existingSector = (await recordDoc.get()).data()?.sector as ProjectSector | undefined;
+        const existing = (await recordDoc.get()).data() as Record<string, unknown> | undefined;
+        const existingSector = existing?.sector as ProjectSector | undefined;
         assertCan(actor, projectSectorPage(data.sector ?? existingSector), 'update');
+        await assertRecordScope(actor, { districtIds: existing?.districtIds as string[] | undefined, brgyIds: existing?.brgyIds as string[] | undefined });
         await recordDoc.update({
             ...data,
             updatedAt: FieldValue.serverTimestamp(),
@@ -617,8 +659,10 @@ export async function deleteProjectRecord(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
         const recordRef = adminDb.collection('projectRecords').doc(id);
-        const existingSector = (await recordRef.get()).data()?.sector as ProjectSector | undefined;
+        const existing = (await recordRef.get()).data() as Record<string, unknown> | undefined;
+        const existingSector = existing?.sector as ProjectSector | undefined;
         assertCan(actor, projectSectorPage(existingSector), 'delete');
+        await assertRecordScope(actor, { districtIds: existing?.districtIds as string[] | undefined, brgyIds: existing?.brgyIds as string[] | undefined });
         await recordRef.delete();
 
         await logAudit({
@@ -827,6 +871,7 @@ export async function addMedicalRecord(data: AddMedicalRecordData, actorToken: A
     try {
         const actor = await resolveActor(actorToken);
         assertCan(actor, 'projects_medical', 'create');
+        await assertRecordScope(actor, { districtId: data.districtId, brgyId: data.brgyId });
         const newRecordRef = adminDb.collection('medicalRecords').doc();
 
         const projectId = `MED-${newRecordRef.id.substring(0, 8).toUpperCase()}`;
@@ -859,6 +904,7 @@ export async function updateMedicalRecord(id: string, data: Partial<Omit<Medical
     try {
         const actor = await resolveActor(actorToken);
         assertCan(actor, 'projects_medical', 'update');
+        await assertExistingRecordScope(actor, 'medicalRecords', id);
         const recordDoc = adminDb.collection('medicalRecords').doc(id);
         await recordDoc.update({
             ...data,
@@ -885,6 +931,7 @@ export async function deleteMedicalRecord(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
         assertCan(actor, 'projects_medical', 'delete');
+        await assertExistingRecordScope(actor, 'medicalRecords', id);
         await adminDb.collection('medicalRecords').doc(id).delete();
 
         await logAudit({
@@ -984,6 +1031,7 @@ export async function addRequest(data: AddRequestData, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
         assertCan(actor, 'receiving', 'create');
+        await assertRecordScope(actor, { districtId: data.districtId, brgyId: data.brgyId });
         const dateReceived = toAdminTimestamp(data.dateReceived);
         const dateFiled = toAdminTimestamp(data.dateFiled);
         if (!dateReceived || !dateFiled) {
@@ -1010,6 +1058,7 @@ export async function updateRequest(id: string, data: Partial<Omit<RequestRecord
     try {
         const actor = await resolveActor(actorToken);
         assertCan(actor, 'receiving', 'update');
+        await assertExistingRecordScope(actor, 'requests', id);
         const docRef = adminDb.collection('requests').doc(id);
         await docRef.update({ ...data, updatedAt: FieldValue.serverTimestamp() });
         await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'update', entityType: 'request', entityId: id });
@@ -1023,6 +1072,7 @@ export async function deleteRequest(id: string, actorToken: ActorToken) {
     try {
         const actor = await resolveActor(actorToken);
         assertCan(actor, 'receiving', 'delete');
+        await assertExistingRecordScope(actor, 'requests', id);
         await adminDb.collection('requests').doc(id).delete();
         await logAudit({ actorUid: actor.uid, actorEmail: actor.email, action: 'delete', entityType: 'request', entityId: id });
         return { success: true };
@@ -1040,6 +1090,7 @@ export async function updateRequestStatus(
     try {
         const actor = await resolveActor(actorToken);
         assertCan(actor, 'receiving', 'update');
+        await assertExistingRecordScope(actor, 'requests', id);
         const docRef = adminDb.collection('requests').doc(id);
         const updateData: Record<string, any> = {
             status: newStatus,

@@ -3,7 +3,7 @@
 // client components AND by server actions (src/app/actions.ts), and a 'use
 // client' boundary here makes calling these functions server-side throw
 // ("Attempted to call canViewPage() from the server").
-import type { UserProfile, PageKey, AccessLevel, Role } from './types';
+import type { UserProfile, PageKey, AccessLevel, Role, ScopeBreadth } from './types';
 
 export const ALL_PAGE_KEYS: PageKey[] = [
   'dashboard',
@@ -150,12 +150,27 @@ function _getRank(roleId: string | undefined, roles?: Role[]): number {
   return _FALLBACK_RANK[roleId ?? ''] ?? 0;
 }
 
-function _getScopeBreadth(roleId: string | undefined, roles?: Role[]) {
-  if (roles?.length) return roles.find(r => r.id === roleId)?.scopeBreadth ?? 'own_districts';
-  // Fallback: only OIC and platformAdmin have all_districts access
-  if (roleId === 'oic' || roleId === 'platformAdmin') return 'all_districts';
-  if (roleId === 'socmed') return 'none';
-  return 'own_districts';
+// Built-in roles carry their location scope in code (authoritative + immutable —
+// built-in scopeBreadth cannot be edited via the roles UI). Custom roles read
+// their scopeBreadth from the roles doc.
+const _BUILTIN_SCOPE: Record<string, ScopeBreadth> = {
+  platformAdmin: 'all_districts',
+  oic: 'all_districts',
+  officeAdmin: 'all_districts', // office staff view everything
+  coordinator: 'own_barangays', // coordinators are limited to their barangays
+  socmed: 'none',
+  applicant: 'none',
+};
+
+export function resolveScopeBreadth(roleId: string | undefined, roles?: Role[]): ScopeBreadth {
+  if (roleId && _BUILTIN_SCOPE[roleId]) return _BUILTIN_SCOPE[roleId];
+  if (roles?.length) return roles.find(r => r.id === roleId)?.scopeBreadth ?? 'none';
+  // Unknown role with no role docs loaded → safest default is no access.
+  return 'none';
+}
+
+function _getScopeBreadth(roleId: string | undefined, roles?: Role[]): ScopeBreadth {
+  return resolveScopeBreadth(roleId, roles);
 }
 
 // ---- Guard functions ----
@@ -279,4 +294,39 @@ export function hasDistrictScope(
   if (scope === 'none') return false;
 
   return u.access?.districtIds?.includes(districtId) ?? false;
+}
+
+/**
+ * Can the user access a location-tagged record, per their role's scope tier?
+ *   all_districts → yes; none → no
+ *   own_districts → every district the record touches is in access.districtIds
+ *   own_barangays → every barangay the record touches is in access.barangayIds
+ * Accepts single (districtId/brgyId) or multi (districtIds/brgyIds) records.
+ * Empty record location → denied (cannot verify scope).
+ */
+export function hasRecordScope(
+  u: UserProfile | null | undefined,
+  loc: { districtId?: string; brgyId?: string; districtIds?: string[]; brgyIds?: string[] },
+  opts?: { isPlatformAdminClaim?: boolean; roles?: Role[] },
+): boolean {
+  if (opts?.isPlatformAdminClaim === true) return true;
+  if (!u || !u.isActive) return false;
+
+  const scope = _getScopeBreadth(u.roleId, opts?.roles);
+  if (scope === 'all_districts') return true;
+  if (scope === 'none') return false;
+
+  if (scope === 'own_districts') {
+    const mine = u.access?.districtIds ?? [];
+    const rec = loc.districtIds ?? (loc.districtId ? [loc.districtId] : []);
+    return rec.length > 0 && rec.every(d => mine.includes(d));
+  }
+
+  if (scope === 'own_barangays') {
+    const mine = u.access?.barangayIds ?? [];
+    const rec = loc.brgyIds ?? (loc.brgyId ? [loc.brgyId] : []);
+    return rec.length > 0 && rec.every(b => mine.includes(b));
+  }
+
+  return false;
 }

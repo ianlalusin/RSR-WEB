@@ -62,6 +62,13 @@ export interface UserProfile {
   access: {
     pages: Partial<Record<PageKey, PageAccess>>;
     districtIds: string[];
+    // Barangay-level scope (used when the role's scopeBreadth is 'own_barangays',
+    // e.g. coordinators). Optional until populated per user.
+    barangayIds?: string[];
+    // Resolved location scope tier, denormalized from the user's role so that
+    // firestore.rules can enforce record scope without recomputing role logic.
+    // Written server-side whenever roleId changes.
+    scopeBreadth?: ScopeBreadth;
   };
 
   socmedRole?: SocmedRole;
@@ -203,7 +210,12 @@ export interface DepartmentListDoc {
   departments: Record<string, DepartmentListItem>;
 }
 
-export type ScopeBreadth = 'own_districts' | 'all_districts' | 'none';
+// Location scope tiers (a role property):
+//   all_districts  — sees everything (office staff, OIC, platform admin)
+//   own_districts  — sees all barangays within assigned districtIds (district lead)
+//   own_barangays  — sees only assigned barangayIds (coordinator)
+//   none           — no access to location-tagged records (everyone else)
+export type ScopeBreadth = 'own_districts' | 'own_barangays' | 'all_districts' | 'none';
 
 export interface Role {
   id: string;

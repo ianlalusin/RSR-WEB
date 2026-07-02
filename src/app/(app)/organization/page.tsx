@@ -300,7 +300,7 @@ const PAGE_LABELS: Record<PageKey, string> = {
 const roleFormSchema = z.object({
   name: z.string().min(2, 'Name is required.'),
   rank: z.coerce.number().int().min(1, 'Min 1').max(99, 'Max 99'),
-  scopeBreadth: z.enum(['own_districts', 'all_districts', 'none']),
+  scopeBreadth: z.enum(['own_districts', 'own_barangays', 'all_districts', 'none']),
   preset: z.record(z.enum(ACCESS_LEVELS)).optional(),
 });
 
@@ -397,13 +397,14 @@ function RoleFormDialog({
               )} />
               <FormField control={form.control} name="scopeBreadth" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>District Scope</FormLabel>
+                  <FormLabel>Location Scope</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value} disabled={isBuiltIn}>
                     <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                     <SelectContent>
-                      <SelectItem value="own_districts">Own districts only</SelectItem>
-                      <SelectItem value="all_districts">All districts</SelectItem>
-                      <SelectItem value="none">None (e.g. applicant)</SelectItem>
+                      <SelectItem value="all_districts">All districts (office-wide)</SelectItem>
+                      <SelectItem value="own_districts">Own districts (district lead)</SelectItem>
+                      <SelectItem value="own_barangays">Own barangays (coordinator)</SelectItem>
+                      <SelectItem value="none">None (no location records)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -506,6 +507,7 @@ function DeleteRoleAlert({ role, children, onSuccess }: { role: Role; children: 
 
 const SCOPE_LABELS: Record<string, string> = {
   own_districts: 'Own districts',
+  own_barangays: 'Own barangays',
   all_districts: 'All districts',
   none: 'None',
 };
