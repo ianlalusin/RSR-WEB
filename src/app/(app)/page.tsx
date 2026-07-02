@@ -1,10 +1,8 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/components/providers/auth-provider';
-import AppLayout from '@/components/layout/app-layout';
 import {
   Card,
   CardContent,
@@ -267,41 +265,9 @@ function AccessDenied() {
 }
 
 
-function FullScreenLoader() {
-  return (
-    <div className="flex h-screen w-full items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-2">
-        <span className="text-5xl font-extrabold tracking-tight text-primary animate-pulse">TAPp</span>
-        <p className="text-xs text-muted-foreground">Talino at Puso App</p>
-      </div>
-    </div>
-  );
-}
-
-export default function Home() {
-  const router = useRouter();
-  const { user, userProfile, loading } = useAuth();
-
-  useEffect(() => {
-    if (loading) return;
-
-    if (!user) {
-      router.replace(`/login`);
-      return;
-    }
-    if (!userProfile?.isActive) {
-      router.replace('/login?reason=inactive');
-      return;
-    }
-  }, [loading, user, userProfile, router]);
-
-  if (loading || !user || !userProfile) {
-    return <FullScreenLoader />;
-  }
-
-  if (!userProfile.isActive) {
-      return <FullScreenLoader />;
-  }
-
-  return <AppLayout><Dashboard /></AppLayout>;
+// Auth gating and the app shell (AppLayout) are handled by the (app) route
+// group's ProtectedLayout, so this page just renders the dashboard content —
+// matching the sibling pages (barangays, medical, etc.).
+export default function DashboardPage() {
+  return <Dashboard />;
 }
