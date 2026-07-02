@@ -16,7 +16,7 @@ import {
 import { PlusCircle, AlertTriangle, Play, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
 import { RequestRecord, RequestStatus } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canViewPage, canDo, isPlatformAdmin, isOIC } from '@/lib/access';
+import { canViewPage, canDo, isPlatformAdmin, isOIC, getScopeFilter } from '@/lib/access';
 import { updateRequestStatus } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { DataTable } from './data-table';
@@ -58,15 +58,21 @@ export default function ReceivingPage() {
     const requestsCollection = collection(db, 'requests');
     let requestsQuery = query(requestsCollection);
 
-    const isAdmin = isPlatformAdmin(userProfile, isPlatformAdminClaim) || isOIC(userProfile);
-
-    if (!isAdmin && userProfile.access.districtIds.length > 0) {
-      requestsQuery = query(requestsCollection, where('districtId', 'in', userProfile.access.districtIds));
-    } else if (!isAdmin && userProfile.access.districtIds.length === 0) {
+    // Scope the query to what firestore.rules will allow for this role tier.
+    const filter = getScopeFilter(userProfile, { isPlatformAdminClaim });
+    if (filter.mode === 'none') {
       setRequests([]);
       setLoading(false);
       return;
     }
+    if (filter.mode === 'byDistrict') {
+      if (filter.districtIds.length === 0) { setRequests([]); setLoading(false); return; }
+      requestsQuery = query(requestsCollection, where('districtId', 'in', filter.districtIds.slice(0, 30)));
+    } else if (filter.mode === 'byBarangay') {
+      if (filter.barangayIds.length === 0) { setRequests([]); setLoading(false); return; }
+      requestsQuery = query(requestsCollection, where('brgyId', 'in', filter.barangayIds.slice(0, 30)));
+    }
+    // mode 'all' → no location filter
 
     const unsub = onSnapshot(requestsQuery, (snapshot) => {
       const items = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id } as RequestRecord));

@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -23,6 +25,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import {
   Select,
@@ -52,7 +55,7 @@ import {
   AccessLevel,
   SocmedRole,
 } from '@/lib/types';
-import { ALL_PAGE_KEYS, assignableRoles } from '@/lib/access';
+import { ALL_PAGE_KEYS, assignableRoles, resolveScopeBreadth } from '@/lib/access';
 import { useAuth } from '@/components/providers/auth-provider';
 import { Loader2, Wand2 } from 'lucide-react';
 
@@ -101,6 +104,7 @@ const formSchema = z.object({
   socmedRole: z.string().optional(),
   access: z.object({
     districtIds: z.array(z.string()).default([]),
+    barangayIds: z.array(z.string()).default([]),
     pages: z.record(z.enum(ACCESS_LEVELS)),
   }),
 });
@@ -141,6 +145,7 @@ export default function UserAccessEditDialog({
       socmedRole: user.socmedRole || 'none',
       access: {
         districtIds: user.access?.districtIds || [],
+        barangayIds: user.access?.barangayIds || [],
         pages: (ALL_PAGE_KEYS.reduce((acc, key) => {
           acc[key] = user.access?.pages?.[key]?.level || 'restricted';
           return acc;
@@ -148,6 +153,30 @@ export default function UserAccessEditDialog({
       },
     },
   });
+
+  // Barangays for the barangay-scope picker (coordinators). Loaded from the
+  // denormalized lists/barangays doc when the dialog opens.
+  const [barangays, setBarangays] = useState<{ id: string; name: string; districtName: string }[]>([]);
+  const [barangayFilter, setBarangayFilter] = useState('');
+  useEffect(() => {
+    if (!isOpen) return;
+    (async () => {
+      const snap = await getDoc(doc(db, 'lists', 'barangays'));
+      const map = (snap.data()?.barangays ?? {}) as Record<string, { name: string; districtName: string }>;
+      setBarangays(
+        Object.entries(map)
+          .map(([id, b]) => ({ id, name: b.name, districtName: b.districtName }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    })();
+  }, [isOpen]);
+
+  // Resolved location scope of the currently selected role drives which
+  // scope picker is shown (district vs barangay).
+  const selectedScope = useMemo(
+    () => resolveScopeBreadth(form.watch('roleId') || undefined, roles),
+    [form.watch('roleId'), roles],
+  );
 
   const applyRolePreset = () => {
     const roleId = form.getValues('roleId');
@@ -161,13 +190,21 @@ export default function UserAccessEditDialog({
     });
     form.setValue('access.pages', pagesFlat, { shouldDirty: true });
 
-    // Apply district scope based on role's scopeBreadth
-    if (roleDoc.scopeBreadth === 'all_districts') {
+    // Apply location scope based on the role's resolved scope tier.
+    const scope = resolveScopeBreadth(roleId, roles);
+    if (scope === 'all_districts') {
       form.setValue('access.districtIds', districts.map(d => d.id), { shouldDirty: true });
-    } else if (roleDoc.scopeBreadth === 'none') {
+      form.setValue('access.barangayIds', [], { shouldDirty: true });
+    } else if (scope === 'none') {
       form.setValue('access.districtIds', [], { shouldDirty: true });
+      form.setValue('access.barangayIds', [], { shouldDirty: true });
+    } else if (scope === 'own_districts') {
+      form.setValue('access.barangayIds', [], { shouldDirty: true });
+      // districtIds → user-specific selection, leave as-is
+    } else if (scope === 'own_barangays') {
+      form.setValue('access.districtIds', [], { shouldDirty: true });
+      // barangayIds → user-specific selection, leave as-is
     }
-    // 'own_districts' → leave as-is; user-specific selection
 
     toast({ title: 'Preset Applied', description: `Permissions set to ${roleDoc.name} defaults.` });
   };
@@ -193,6 +230,7 @@ export default function UserAccessEditDialog({
       socmedRole: (values.socmedRole === 'none' ? null : values.socmedRole) as SocmedRole | undefined,
       access: {
         districtIds: values.access.districtIds,
+        barangayIds: values.access.barangayIds,
         pages: pagesPayload,
       },
     };
@@ -327,41 +365,93 @@ export default function UserAccessEditDialog({
                   ) : null;
                 })()}
 
-                {/* District Scope */}
-                <FormField
-                  control={form.control}
-                  name="access.districtIds"
-                  render={() => (
-                    <FormItem>
-                      <FormLabel className="text-base font-semibold">District Scope</FormLabel>
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-2">
-                        {districts.map((d) => (
-                          <FormField
-                            key={d.id}
-                            control={form.control}
-                            name="access.districtIds"
-                            render={({ field }) => (
-                              <FormItem key={d.id} className="flex flex-row items-start space-x-3 space-y-0">
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value?.includes(d.id)}
-                                    onCheckedChange={(checked) => (
-                                      checked
-                                        ? field.onChange([...(field.value || []), d.id])
-                                        : field.onChange((field.value || []).filter((v) => v !== d.id))
-                                    )}
-                                  />
-                                </FormControl>
-                                <FormLabel className="font-normal">{d.name}</FormLabel>
-                              </FormItem>
-                            )}
-                          />
-                        ))}
-                      </div>
-                      <FormMessage />
-                    </FormItem>
+                {/* Location Scope — driven by the selected role's scope tier */}
+                <div>
+                  <FormLabel className="text-base font-semibold">Location Scope</FormLabel>
+                  {selectedScope === 'all_districts' && (
+                    <p className="pt-2 text-sm text-muted-foreground">This role sees records in <strong>all districts</strong> — no per-user selection needed.</p>
                   )}
-                />
+                  {selectedScope === 'none' && (
+                    <p className="pt-2 text-sm text-muted-foreground">This role has <strong>no access</strong> to location-tagged records.</p>
+                  )}
+
+                  {selectedScope === 'own_districts' && (
+                    <FormField
+                      control={form.control}
+                      name="access.districtIds"
+                      render={() => (
+                        <FormItem>
+                          <FormDescription>District lead — select the district(s) this user oversees (all barangays within).</FormDescription>
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-2">
+                            {districts.map((d) => (
+                              <FormField
+                                key={d.id}
+                                control={form.control}
+                                name="access.districtIds"
+                                render={({ field }) => (
+                                  <FormItem key={d.id} className="flex flex-row items-start space-x-3 space-y-0">
+                                    <FormControl>
+                                      <Checkbox
+                                        checked={field.value?.includes(d.id)}
+                                        onCheckedChange={(checked) => (
+                                          checked
+                                            ? field.onChange([...(field.value || []), d.id])
+                                            : field.onChange((field.value || []).filter((v) => v !== d.id))
+                                        )}
+                                      />
+                                    </FormControl>
+                                    <FormLabel className="font-normal">{d.name}</FormLabel>
+                                  </FormItem>
+                                )}
+                              />
+                            ))}
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
+                  {selectedScope === 'own_barangays' && (
+                    <FormField
+                      control={form.control}
+                      name="access.barangayIds"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormDescription>Coordinator — select the specific barangay(s) this user can access.</FormDescription>
+                          <Input
+                            placeholder="Filter barangays…"
+                            value={barangayFilter}
+                            onChange={(e) => setBarangayFilter(e.target.value)}
+                            className="mt-2 max-w-xs"
+                          />
+                          <p className="pt-1 text-xs text-muted-foreground">{(field.value?.length ?? 0)} selected</p>
+                          <ScrollArea className="h-56 rounded border mt-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-3">
+                              {barangays
+                                .filter((b) => `${b.name} ${b.districtName}`.toLowerCase().includes(barangayFilter.toLowerCase()))
+                                .map((b) => (
+                                  <label key={b.id} className="flex flex-row items-start space-x-3 space-y-0 cursor-pointer">
+                                    <Checkbox
+                                      checked={field.value?.includes(b.id)}
+                                      onCheckedChange={(checked) => (
+                                        checked
+                                          ? field.onChange([...(field.value || []), b.id])
+                                          : field.onChange((field.value || []).filter((v) => v !== b.id))
+                                      )}
+                                    />
+                                    <span className="text-sm font-normal leading-tight">{b.name} <span className="text-muted-foreground">— {b.districtName}</span></span>
+                                  </label>
+                                ))}
+                              {barangays.length === 0 && <p className="text-sm text-muted-foreground">Loading barangays…</p>}
+                            </div>
+                          </ScrollArea>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
 
                 {/* Page Permissions — scholarship keys hidden (no live routes yet) */}
                 <div>

@@ -6,7 +6,7 @@ import { db } from '@/lib/firebase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { MedicalRecord } from '@/lib/types';
 import { useAuth } from '@/components/providers/auth-provider';
-import { canViewPage, canDo, isPlatformAdmin } from '@/lib/access';
+import { canViewPage, canDo, getScopeFilter } from '@/lib/access';
 import { DataTable } from '../data-table';
 import { columns } from '../columns';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -22,7 +22,6 @@ export default function MedicalAssistancePage() {
   const authOpts = { isPlatformAdminClaim };
   const canView = canViewPage(userProfile, 'projects_medical', authOpts);
   const canWrite = canDo(userProfile, 'projects_medical', 'create', authOpts);
-  const isAdmin = isPlatformAdmin(userProfile, isPlatformAdminClaim);
 
   useEffect(() => {
     if (!canView || !userProfile) {
@@ -33,13 +32,21 @@ export default function MedicalAssistancePage() {
     const recordsCollection = collection(db, 'medicalRecords');
     let recordsQuery = query(recordsCollection);
 
-    if (!isAdmin && userProfile.access.districtIds.length > 0) {
-      recordsQuery = query(recordsCollection, where('districtId', 'in', userProfile.access.districtIds));
-    } else if (!isAdmin && userProfile.access.districtIds.length === 0) {
+    // Scope the query to what firestore.rules will allow for this role tier.
+    const filter = getScopeFilter(userProfile, { isPlatformAdminClaim });
+    if (filter.mode === 'none') {
       setMedicalRecords([]);
       setLoading(false);
       return;
     }
+    if (filter.mode === 'byDistrict') {
+      if (filter.districtIds.length === 0) { setMedicalRecords([]); setLoading(false); return; }
+      recordsQuery = query(recordsCollection, where('districtId', 'in', filter.districtIds.slice(0, 30)));
+    } else if (filter.mode === 'byBarangay') {
+      if (filter.barangayIds.length === 0) { setMedicalRecords([]); setLoading(false); return; }
+      recordsQuery = query(recordsCollection, where('brgyId', 'in', filter.barangayIds.slice(0, 30)));
+    }
+    // mode 'all' → no location filter
 
     const unsub = onSnapshot(recordsQuery, (snapshot) => {
       const records = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as MedicalRecord));
@@ -51,7 +58,7 @@ export default function MedicalAssistancePage() {
     });
 
     return () => unsub();
-  }, [canView, userProfile, isAdmin]);
+  }, [canView, userProfile, isPlatformAdminClaim]);
 
   if (loading) {
     return (

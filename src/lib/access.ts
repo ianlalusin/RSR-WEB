@@ -296,6 +296,28 @@ export function hasDistrictScope(
   return u.access?.districtIds?.includes(districtId) ?? false;
 }
 
+// Scope filter for client-side record queries — mirrors the read logic in
+// firestore.rules so the query only requests documents the rules will allow.
+export type ScopeFilter =
+  | { mode: 'all' }
+  | { mode: 'byDistrict'; districtIds: string[] }
+  | { mode: 'byBarangay'; barangayIds: string[] }
+  | { mode: 'none' };
+
+export function getScopeFilter(
+  u: UserProfile | null | undefined,
+  opts?: { isPlatformAdminClaim?: boolean; roles?: Role[] },
+): ScopeFilter {
+  if (opts?.isPlatformAdminClaim === true) return { mode: 'all' };
+  if (!u || !u.isActive) return { mode: 'none' };
+  // Prefer the denormalized resolved scope; fall back to role resolution.
+  const scope = u.access?.scopeBreadth ?? _getScopeBreadth(u.roleId, opts?.roles);
+  if (scope === 'all_districts') return { mode: 'all' };
+  if (scope === 'own_districts') return { mode: 'byDistrict', districtIds: u.access?.districtIds ?? [] };
+  if (scope === 'own_barangays') return { mode: 'byBarangay', barangayIds: u.access?.barangayIds ?? [] };
+  return { mode: 'none' };
+}
+
 /**
  * Can the user access a location-tagged record, per their role's scope tier?
  *   all_districts → yes; none → no
