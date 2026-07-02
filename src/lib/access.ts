@@ -259,6 +259,12 @@ export function assignableRoles(
     .sort((a, b) => b.rank - a.rank);
 }
 
+// Department restrict filter: a page explicitly set to `false` in the user's
+// denormalized department mask is off-limits regardless of role/override.
+export function deptRestrictsPage(u: UserProfile | null | undefined, page: PageKey): boolean {
+  return u?.access?.deptPageMask?.[page] === false;
+}
+
 export function canViewPage(
   u: UserProfile | null,
   page: PageKey,
@@ -268,6 +274,8 @@ export function canViewPage(
   if (!u?.isActive) return false;
 
   if (page === 'admin_users') return isPlatformAdmin(u, opts?.isPlatformAdminClaim) || isOIC(u);
+
+  if (deptRestrictsPage(u, page)) return false;
 
   if (!u.access?.pages || typeof u.access.pages !== 'object' || Array.isArray(u.access.pages)) {
     return false;
@@ -295,6 +303,8 @@ export function canDo(
     if (isOIC(u)) return action !== 'delete';
     return false;
   }
+
+  if (deptRestrictsPage(u, page)) return false;
 
   if (!u.access?.pages || typeof u.access.pages !== 'object' || Array.isArray(u.access.pages)) {
     return false;

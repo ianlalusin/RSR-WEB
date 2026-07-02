@@ -65,6 +65,42 @@ async function loadRoles(): Promise<Role[]> {
 }
 
 /**
+ * Loads a department's pageVisibility mask (the "restrict filter"). Returns null
+ * when the department or its mask is absent (→ no page restriction).
+ */
+async function loadDepartmentMask(
+  deptId: string | undefined,
+): Promise<Partial<Record<PageKey, boolean>> | null> {
+  if (!deptId) return null;
+  const snap = await adminDb.collection('lists').doc('departments').get();
+  if (!snap.exists) return null;
+  const dept = (snap.data() as { departments?: Record<string, Department> })?.departments?.[deptId];
+  return dept?.pageVisibility ?? null;
+}
+
+/**
+ * Propagates a department's page mask to all member users' denormalized
+ * access.deptPageMask. Pass null to clear (e.g. department deleted / mask reset).
+ * Batched; member counts are small (dozens). Returns the number of users synced.
+ */
+async function syncDeptMaskToMembers(
+  deptId: string,
+  mask: Partial<Record<PageKey, boolean>> | null,
+): Promise<number> {
+  const members = await adminDb.collection('users').where('departmentId', '==', deptId).get();
+  if (members.empty) return 0;
+  const batch = adminDb.batch();
+  members.docs.forEach((d) => {
+    batch.update(d.ref, {
+      'access.deptPageMask': mask ?? FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  await batch.commit();
+  return members.size;
+}
+
+/**
  * Location-scope guard for record mutations. Throws when the record's
  * district/barangay falls outside the actor's role-based scope tier
  * (all_districts / own_districts / own_barangays / none). The write-side
@@ -547,19 +583,28 @@ export async function updateUserAccess(uid: string, data: Partial<UserProfile>, 
         const primaryRoleId = highestRankRoleId(finalRoleIds, roles) ?? finalRoleIds[0];
         const scopeBreadth = broadestScope(finalRoleIds, roles);
 
+        // Denormalize the department restrict-filter mask (pageVisibility) for the
+        // effective department so canViewPage/canDo + firestore.rules can clamp
+        // page access without recomputing dept logic.
+        const effectiveDeptId = (data.departmentId as string | undefined) ?? target?.departmentId;
+        const deptMask = await loadDepartmentMask(effectiveDeptId);
+
         const updatePayload: Record<string, unknown> = { ...sanitized, updatedAt: FieldValue.serverTimestamp() };
         // Keep primary roleId and roleIds in sync whenever roles change.
         if (rolesBeingSet) {
             updatePayload.roleIds = finalRoleIds;
             updatePayload.roleId = primaryRoleId;
         }
-        // Denormalize the broadest scope so firestore.rules + client queries can
-        // enforce record scope without recomputing role logic. Inject into the
-        // access object when one is being written, else merge via dotted path.
+        // Denormalize broadest scope + dept mask so firestore.rules + client
+        // queries enforce without recomputing role/dept logic. Inject into the
+        // access object when one is being written, else merge via dotted paths.
         if (sanitized.access && typeof sanitized.access === 'object') {
-            updatePayload.access = { ...(sanitized.access as Record<string, unknown>), scopeBreadth };
+            const accessObj: Record<string, unknown> = { ...(sanitized.access as Record<string, unknown>), scopeBreadth };
+            if (deptMask) accessObj.deptPageMask = deptMask; else delete accessObj.deptPageMask;
+            updatePayload.access = accessObj;
         } else {
             updatePayload['access.scopeBreadth'] = scopeBreadth;
+            updatePayload['access.deptPageMask'] = deptMask ?? FieldValue.delete();
         }
 
         const userDoc = adminDb.collection('users').doc(uid);
@@ -762,6 +807,11 @@ export async function updateDepartment(id: string, data: Partial<Omit<Department
 
         await listDocRef.update(updatePayload);
 
+        // When the restrict-filter mask changes, re-sync it to all members.
+        if (data.pageVisibility !== undefined) {
+            await syncDeptMaskToMembers(id, data.pageVisibility ?? null);
+        }
+
         await logAudit({
             actorUid: actor.uid,
             actorEmail: actor.email,
@@ -783,6 +833,9 @@ export async function deleteDepartment(id: string, actorToken: ActorToken) {
         assertCan(actor, 'organization_departments', 'delete');
         const listDocRef = adminDb.collection('lists').doc('departments');
         await listDocRef.update({ [`departments.${id}`]: FieldValue.delete() });
+
+        // Clear the (now-orphaned) department mask from any members.
+        await syncDeptMaskToMembers(id, null);
 
         await logAudit({
             actorUid: actor.uid,

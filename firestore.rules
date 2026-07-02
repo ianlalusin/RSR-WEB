@@ -63,10 +63,13 @@ service cloud.firestore {
     }
 
     // Page-access read gate (for non-location collections like tasks).
+    // Honors the department restrict-filter mask (deptPageMask): a page
+    // explicitly false there is off-limits regardless of role/override.
     function canReadPage(pageKey) {
       return isPlatformAdmin() || (isActiveUser()
         && pageKey in me().access.pages
-        && me().access.pages[pageKey].level != 'restricted');
+        && me().access.pages[pageKey].level != 'restricted'
+        && !(('deptPageMask' in me().access) && me().access.deptPageMask[pageKey] == false));
     }
 
     // -------- SocMed role helpers --------

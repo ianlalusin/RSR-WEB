@@ -182,6 +182,15 @@ export default function UserAccessEditDialog({
     return roles.find(r => r.id === primaryId)?.name;
   }, [watchedRoleIds, roles]);
 
+  // Pages the selected department restricts (pageVisibility === false) — a hard
+  // ceiling applied server-side regardless of the levels chosen below.
+  const watchedDeptId = form.watch('departmentId');
+  const deptRestrictedPages = useMemo(() => {
+    const mask = departments.find(d => d.id === watchedDeptId)?.pageVisibility;
+    if (!mask) return new Set<string>();
+    return new Set(Object.entries(mask).filter(([, v]) => v === false).map(([k]) => k));
+  }, [watchedDeptId, departments]);
+
   // Union of all selected roles' presets → max access level per page.
   const applyRolePreset = () => {
     const selected = (form.getValues('roleIds') || [])
@@ -480,6 +489,11 @@ export default function UserAccessEditDialog({
                 {/* Page Permissions — scholarship keys hidden (no live routes yet) */}
                 <div>
                   <FormLabel className="text-base font-semibold">Page Permissions</FormLabel>
+                  {deptRestrictedPages.size > 0 && (
+                    <p className="mt-1 text-xs text-amber-600">
+                      The selected department hides {deptRestrictedPages.size} page(s) — those stay restricted regardless of the level chosen here.
+                    </p>
+                  )}
                   <Table className="mt-2">
                     <TableHeader>
                       <TableRow>
@@ -489,8 +503,11 @@ export default function UserAccessEditDialog({
                     </TableHeader>
                     <TableBody>
                       {VISIBLE_PAGE_KEYS.map((key) => (
-                        <TableRow key={key}>
-                          <TableCell>{PAGE_LABELS[key]}</TableCell>
+                        <TableRow key={key} className={deptRestrictedPages.has(key) ? 'opacity-50' : undefined}>
+                          <TableCell>
+                            {PAGE_LABELS[key]}
+                            {deptRestrictedPages.has(key) && <span className="ml-2 text-xs text-amber-600">(dept-restricted)</span>}
+                          </TableCell>
                           <TableCell>
                             <FormField
                               control={form.control}

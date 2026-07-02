@@ -70,6 +70,11 @@ export interface UserProfile {
     // firestore.rules can enforce record scope without recomputing role logic.
     // Written server-side whenever roleId changes.
     scopeBreadth?: ScopeBreadth;
+    // Denormalized copy of the user's department's pageVisibility mask. Acts as a
+    // hard ceiling on page access: a page explicitly `false` here is restricted
+    // regardless of role/override. Absent or `true` → no restriction. Written
+    // server-side on role/department assignment and on department edits.
+    deptPageMask?: Partial<Record<PageKey, boolean>>;
   };
 
   socmedRole?: SocmedRole;
